@@ -9,7 +9,7 @@ import asyncio
 # Инициализация
 TOKEN = "8083923455:AAFwD2nAD5oPSeA16TrYjAgk_X2tw49F5n4"
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot=bot)
 
 # Обработчик /start
 @dp.message(lambda message: message.text == "/start")
