@@ -156,10 +156,22 @@ def generate_product_keyboard(category):
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(f"{name} - {price}", callback_data=callback)]
-        for name, price, callback in products[category]
-    ])
+    def generate_product_keyboard(category):
+    if category not in products:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
+        ])
+
+    keyboard = InlineKeyboardMarkup()
+    for item in products[category]:
+        if len(item) == 3:  # Проверяем, что в массиве 3 элемента (имя, цена, callback_data)
+            name, price, callback = item
+            keyboard.add(InlineKeyboardButton(f"{name} - {price}", callback_data=callback))
+        else:
+            print(f"⚠️ Ошибка: некорректный товар в категории {category}: {item}")
+
+    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory"))
+    return keyboard
     keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
     return keyboard
 
