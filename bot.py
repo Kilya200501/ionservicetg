@@ -1,3 +1,4 @@
+> Коля:
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, types
@@ -52,7 +53,7 @@ def generate_subcategories(model):
 # Подключаем подкатегории ко всем моделям
 subcategories_menu = {f"iphone_{model}": generate_subcategories(model) for model in iphone_models}
 
-# Товары для каждой модели iPhone
+# Товары для всех моделей iPhone
 products = {
     # iPhone 16 Pro Max
     "corpus_16_pro_max": [
@@ -69,10 +70,41 @@ products = {
         ("Фронтальная камера", "2,500₽", "order_16_pro_max_front_camera"),
     ],
 
+    # iPhone 16 Pro
+    "corpus_16_pro": [
+        ("Средняя часть (натуральный титан)", "17,000₽", "order_16_pro_mid"),
+        ("Задняя крышка (натуральный титан)", "19,000₽", "order_16_pro_back"),
+    ],
+    "display_16_pro": [
+        ("Оригинальный снятый дисплей", "41,000₽ (идеал)", "order_16_pro_display"),
+    ],
+    "camera_main_16_pro": [
+        ("Основная камера", "8,000₽", "order_16_pro_main_camera"),
+    ],
+    "camera_front_16_pro": [
+        ("Фронтальная камера", "2,500₽", "order_16_pro_front_camera"),
+    ],
+
+    # iPhone 16 Plus
+    "corpus_16_plus": [
+        ("Средняя часть (eSIM)", "15,000₽", "order_16_plus_mid"),
+        ("Задняя крышка", "16,000₽", "order_16_plus_back"),
+    ],
+    "display_16_plus": [
+        ("Оригинальный снятый дисплей", "41,000₽ (отличное состояние)", "order_16_plus_display"),
+    ],
+    "camera_main_16_plus": [
+        ("Основная камера", "7,000₽", "order_16_plus_main_camera"),
+    ],
+    "camera_front_16_plus": [
+        ("Фронтальная камера", "2,500₽", "order_16_plus_front_camera"),
+    ],
+
     # iPhone 15 Pro Max
     "corpus_15_pro_max": [
+        ("Корпус в отличном состоянии", "23,000₽", "order_15_pro_max_body_perfect"),
+        ("Корпус в хорошем состоянии", "22,000₽", "order_15_pro_max_body_good"),
         ("Средняя часть", "10,000₽", "order_15_pro_max_mid"),
-        ("Задняя крышка", "23,000₽", "order_15_pro_max_back"),
     ],
     "display_15_pro_max": [
         ("Оригинальный снятый дисплей", "32,000₽ (хорошее состояние)", "order_15_pro_max_display"),
@@ -84,35 +116,59 @@ products = {
         ("Фронтальная камера", "1,000₽", "order_15_pro_max_front_camera"),
     ],
 
-    # iPhone 14 Pro Max
-    "corpus_14_pro_max": [
-        ("Средняя часть eSIM", "10,000₽", "order_14_pro_max_mid"),
-        ("Задняя крышка", "21,000₽", "order_14_pro_max_back"),
+    # iPhone 15 Pro
+    "corpus_15_pro": [
+        ("Корпус в идеальном состоянии", "22,000₽", "order_15_pro_body_perfect"),
+        ("Корпус eSIM", "20,000₽", "order_15_pro_body_esim"),
+        ("Рамка со шлейфами", "9,000₽", "order_15_pro_frame_flex"),
     ],
-    "display_14_pro_max": [
-        ("Оригинальный снятый дисплей", "30,000₽ (отличное состояние)", "order_14_pro_max_display"),
+    "display_15_pro": [
+        ("Оригинальный снятый дисплей", "28,000₽ (полировка)", "order_15_pro_display"),
+        ("Оригинальный снятый дисплей", "27,000₽ (хорошее состояние)", "order_15_pro_display_good"),
     ],
-    "camera_main_14_pro_max": [
-        ("Основная камера", "3,000₽", "order_14_pro_max_main_camera"),
+    "camera_main_15_pro": [
+        ("Основная камера", "3,000₽", "order_15_pro_main_camera"),
     ],
-    "camera_front_14_pro_max": [
-        ("Фронтальная камера", "1,000₽", "order_14_pro_max_front_camera"),
+    "camera_front_15_pro": [
+        ("Фронтальная камера", "1,000₽", "order_15_pro_front_camera"),
     ],
 }
 
-# Функция генерации клавиатуры с товарами
+# Обработчик команды /start
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer("👋 Привет! Я помощник компании Ion Service!\nВыберите категорию:", reply_markup=main_menu)
 
-def generate_product_keyboard(category):
-    if category not in products:
-        return InlineKeyboardMarkup(inline_keyboard=[  # <-- Исправленный отступ
-            [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
-        ])
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(f"{name} - {price}", callback_data=callback)]
-        for name, price, callback in products[category]
-    ])
-    keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
-    return keyboard
+# Обработчик выбора категории "iPhone"
+@dp.callback_query(lambda call: call.data == "category_iphone")
+async def category_callback(call: types.CallbackQuery):
+    await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
+
+# Обработчик выбора модели iPhone
+@dp.callback_query(lambda call: call.data.startswith("iphone_"))
+async def iphone_model_callback(call: types.CallbackQuery):
+    model = call.data.replace("iphone_", "").replace("_", " ").title()
+    await call.message.edit_text(f"Вы выбрали {model}.\nВыберите категорию:", reply_markup=subcategories_menu.get(call.data, main_menu))
+
+# Обработчик выбора подкатегории (Корпус, Дисплей и т.д.)
+@dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
+async def subcategory_callback(call: types.CallbackQuery):
+    category = call.data
+    keyboard = generate_product_keyboard(category)
+
+    try:
+        await call.message.delete()  # Удаляем старое сообщение
+        await call.message.answer(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=keyboard)
+    except Exception as e:
+        await call.answer(f"Ошибка: {e}", show_alert=True)
+
+# Обработчик кнопки "Назад"
+@dp.callback_query(lambda call: call.data.startswith("back_"))
+async def back_callback(call: types.CallbackQuery):
+    if call.data == "back_iphone":
+        await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
+    elif call.data == "back_main":
+        await call.message.edit_text("Выберите категорию:", reply_markup=main_menu)
 
 # Функция запуска бота
 async def main():
