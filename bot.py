@@ -140,8 +140,8 @@ async def order_callback(call: types.CallbackQuery):
 
 # Функция запуска бота
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await bot.delete_webhook(drop_pending_updates=True)  # Очистка Webhook
+    await dp.start_polling(bot)  # Запуск бота
 
-if __name__ == "__main__":
-    asyncio.run(main())
+if name == "__main__":
+    asyncio.run(main())  # Запускаем асинхронный цикл
