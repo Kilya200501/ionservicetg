@@ -109,10 +109,16 @@ async def iphone_model_callback(call: types.CallbackQuery):
     await call.message.edit_text(f"Вы выбрали {model}.\nВыберите категорию:", reply_markup=subcategories_menu.get(call.data, main_menu))
 
 # Обработчик выбора подкатегории (Корпус, Дисплей и т. д.)
+
 @dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
 async def subcategory_callback(call: types.CallbackQuery):
     category = call.data
-    await call.message.edit_text(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=generate_product_keyboard(category))
+    keyboard = generate_product_keyboard(category)
+    
+    if keyboard.inline_keyboard:  # Проверяем, есть ли кнопки с товарами
+        await call.message.edit_text(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=keyboard)
+    else:
+        await call.answer("🔹 В этой категории пока нет товаров.", show_alert=True)
 
 # Обработчик кнопки "Назад" в меню моделей iPhone
 @dp.callback_query(lambda call: call.data == "back_iphone")
