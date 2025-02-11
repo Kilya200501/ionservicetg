@@ -10,6 +10,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # Тайм-аут 6 часов
 
     steps:
       - name: Checkout code
@@ -26,5 +27,5 @@ jobs:
 
       - name: Run bot
         env:
-          TOKEN: ${{ secrets.TOKEN }}  # <-- Теперь GitHub использует секретный токен
+          TOKEN: ${{ secrets.TOKEN }}  # Используем токен из GitHub Secrets
         run: python bot.py
