@@ -138,6 +138,10 @@ async def order_callback(call: types.CallbackQuery):
                 
                 await call.message.answer("✅ Ваш заказ отправлен менеджеру. Скоро с вами свяжутся!")
 
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer("👋 Привет! Я помощник компании Ion Service!\nВыберите категорию:", reply_markup=main_menu)
+
 # Функция запуска бота
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)  # Очистка Webhook
