@@ -87,6 +87,7 @@ products = {
     ],
 }
 
+
 # Функция генерации клавиатуры с товарами
 def generate_product_keyboard(category):
     if category not in products or not products[category]:  # Проверяем, есть ли товары
@@ -94,20 +95,13 @@ def generate_product_keyboard(category):
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
 
-    keyboard = InlineKeyboardMarkup()  # Исправлено
-    for name, price, callback in products[category]:
-        keyboard.add(InlineKeyboardButton(f"{name} - {price}", callback_data=callback))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])  # Исправлено: теперь создаём корректный объект
 
-    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory"))
-    return keyboard
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])  # Исправлено
     for name, price, callback in products[category]:
         keyboard.inline_keyboard.append([InlineKeyboardButton(f"{name} - {price}", callback_data=callback)])
 
-    keyboard.inline_keyboard.
-append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
+    keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
     return keyboard
-
 # Обработчик выбора подкатегории
 @dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
 async def subcategory_callback(call: types.CallbackQuery):
