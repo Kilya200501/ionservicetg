@@ -10,130 +10,172 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 
-
-# ---------------------- НАСТРОЙКИ ----------------------
-TOKEN = "8102076873:AAHf_fPaG5n2tr5C1NnoOVJ62MnIo-YbRi8"  # <-- Вставьте сюда токен вашего бота
+# ------------------- НАСТРОЙКИ -------------------
+TOKEN = "8102076873:AAHf_fPaG5n2tr5C1NnoOVJ62MnIo-YbRi8"  # <-- Вставьте реальный токен бота
 FEED_URL = "https://ion-master.ru/index.php?route=extension/feed/yandex_yml"
-MANAGER_ID = 5300643604  # ID менеджера, получающего заказы
-# -------------------------------------------------------
-
+MANAGER_ID = 5300643604  # ID менеджера для уведомлений о заказе
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
+# Словари для хранения результата фида
+CATEGORIES = {}        # cat_id -> cat_name
+CATEGORY_PRODUCTS = {} # cat_id -> список товаров (dict)
 
-def get_products_from_feed():
+def load_feed():
     """
-    Скачиваем Yandex YML-фид, парсим XML (через xmltodict),
-    возвращаем список словарей вида:
-    [ {"id":..., "name":..., "price":..., "description":...}, ... ]
+    Скачиваем YML-фид, парсим XML и заполняем:
+      - CATEGORIES (cat_id -> cat_name)
+      - CATEGORY_PRODUCTS (cat_id -> [ {id, name, price, count}, ... ])
+    Пропускаем фото/описание (picture/description).
     """
+    global CATEGORIES, CATEGORY_PRODUCTS
+    CATEGORIES.clear()
+    CATEGORY_PRODUCTS.clear()
+
     try:
-        response = requests.get(FEED_URL, timeout=10)
-        if response.status_code != 200:
-            print(f"Ошибка при загрузке фида: {response.status_code}")
-            return []
+        resp = requests.get(FEED_URL, timeout=10)
+        if resp.status_code != 200:
+            print(f"Ошибка при загрузке фида: {resp.status_code}")
+            return
 
-        data = xmltodict.parse(response.content)
-        offers = data["yml_catalog"]["shop"]["offers"]["offer"]
-        # Если в фиде всего один <offer>, xmltodict вернёт словарь, а не список
-        if isinstance(offers, dict):
-            offers = [offers]
+        data = xmltodict.parse(resp.content)
+        shop = data["yml_catalog"]["shop"]
 
-        products = []
-        for offer in offers:
-            prod_id = offer.get("@id")        # <offer id="...">
-            name = offer.get("name")          # <name>Название</name>
-            price = offer.get("price")        # <price>12345</price>
-            desc = offer.get("description")   # <description>...</description>
+        # 1) Считываем <categories>
+        raw_cats = shop["categories"]["category"]
+        if isinstance(raw_cats, dict):
+            raw_cats = [raw_cats]
 
-            products.append({
+        for c in raw_cats:
+            cat_id = c["@id"]
+            cat_name = c.get("#text", "Без названия")
+            CATEGORIES[cat_id] = cat_name
+
+        # 2) Считываем <offers>
+        raw_offers = shop["offers"]["offer"]
+        if isinstance(raw_offers, dict):
+            raw_offers = [raw_offers]
+
+        for offer in raw_offers:
+            prod_id = offer.get("@id")
+            cat_id = offer.get("categoryId")
+            name = offer.get("name") or "Без названия"
+            price = offer.get("price") or "0"
+            count = offer.get("count") or "0"
+
+            if cat_id not in CATEGORY_PRODUCTS:
+                CATEGORY_PRODUCTS[cat_id] = []
+            CATEGORY_PRODUCTS[cat_id].append({
                 "id": prod_id,
                 "name": name,
                 "price": price,
-                "description": desc
+                "count": count
             })
-        return products
 
     except Exception as e:
-        print("Ошибка при парсинге фида:", e)
-        return []
-
+        print("Ошибка парсинга фида:", e)
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     """
-    Загружаем товары из фида и показываем их списком (кнопки) при команде /start.
+    При /start загружаем фид и показываем все категории (одним списком).
     """
-    products = get_products_from_feed()
-    if not products:
-        await message.answer("Не удалось загрузить товары (фид пуст или ошибка).")
+    load_feed()
+    if not CATEGORIES:
+        await message.answer("Не удалось загрузить категории (фид пуст или ошибка).")
         return
 
-    # Создаём клавиатуру в формате aiogram 3.x
     kb = InlineKeyboardMarkup(inline_keyboard=[])
-    for p in products:
-        pid = p["id"]
-        pname = p["name"] or "Без названия"
-        pprice = p["price"] or "0"
-        text_btn = f"{pname} - {pprice}₽"
-
-        # Добавляем новую строку с кнопкой (list of list)
+    for cat_id, cat_name in CATEGORIES.items():
+        # Кнопка для категории
         kb.inline_keyboard.append([
-            InlineKeyboardButton(text=text_btn, callback_data=f"prod_{pid}")
+            InlineKeyboardButton(text=cat_name, callback_data=f"cat_{cat_id}")
         ])
 
-    await message.answer("Список товаров (из Yandex YML фида):", reply_markup=kb)
-
+    await message.answer("Выберите категорию:", reply_markup=kb)
 
 @dp.callback_query()
 async def callback_handler(call: CallbackQuery):
+    """
+    1) cat_{id} -> показываем товары данной категории
+    2) prod_{id}_{cat_id} -> показываем детали товара (только имя, цена, кол-во) + "Оформить заказ"
+    3) order_{id}_{cat_id} -> оформить заказ, уведомление менеджеру
+    """
     data = call.data
 
-    # --- 1) Пользователь выбрал товар (prod_<id>) ---
-    if data.startswith("prod_"):
-        product_id = data.split("_")[1]
-        products = get_products_from_feed()
-        product = next((p for p in products if p["id"] == product_id), None)
+    # --- 1) Выбор категории ---
+    if data.startswith("cat_"):
+        cat_id = data.split("_")[1]
+        cat_name = CATEGORIES.get(cat_id, "Без названия")
+
+        # Получаем товары в этой категории (может быть список или пусто)
+        products = CATEGORY_PRODUCTS.get(cat_id, [])
+        if not products:
+            await call.message.edit_text(
+                f"В категории <b>{cat_name}</b> нет товаров."
+            )
+            return
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+        for p in products:
+            pid = p["id"]
+            pname = p["name"]
+            pprice = p["price"]
+            pcount = p["count"]
+            text_btn = f"{pname} — {pprice}₽ (кол: {pcount})"
+            kb.inline_keyboard.append([
+                InlineKeyboardButton(text=text_btn, callback_data=f"prod_{pid}_{cat_id}")
+            ])
+
+        await call.message.edit_text(
+            f"Товары в категории <b>{cat_name}</b>:",
+            reply_markup=kb
+        )
+
+    # --- 2) Подробно о товаре ---
+    elif data.startswith("prod_"):
+        # формат: "prod_{прод_id}_{кат_id}"
+        _, prod_id, cat_id = data.split("_")
+        products = CATEGORY_PRODUCTS.get(cat_id, [])
+        product = next((x for x in products if x["id"] == prod_id), None)
         if not product:
             await call.answer("Товар не найден", show_alert=True)
             return
 
-        name = product["name"] or "Без названия"
-        price = product["price"] or "0"
-        desc = product["description"] or "Нет описания"
+        name = product["name"]
+        price = product["price"]
+        count = product["count"]
 
         text = (
             f"<b>{name}</b>\n"
-            f"Цена: {price}₽\n\n"
-            f"{desc}"
+            f"Цена: {price}₽\n"
+            f"Наличие: {count} шт."
         )
 
-        # Кнопка «Оформить заказ»
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
-                text="🛒 Оформить заказ",
-                callback_data=f"order_{product_id}"
+                text="Оформить заказ",
+                callback_data=f"order_{prod_id}_{cat_id}"
             )
         ]])
 
         await call.message.edit_text(text, reply_markup=kb)
 
-    # --- 2) Пользователь нажал «Оформить заказ» (order_<id>) ---
+    # --- 3) Оформление заказа ---
     elif data.startswith("order_"):
-        product_id = data.split("_")[1]
-        products = get_products_from_feed()
-        product = next((p for p in products if p["id"] == product_id), None)
+        _, prod_id, cat_id = data.split("_")
+        products = CATEGORY_PRODUCTS.get(cat_id, [])
+        product = next((x for x in products if x["id"] == prod_id), None)
         if not product:
             await call.answer("Товар не найден", show_alert=True)
             return
 
-        user_name = call.from_user.first_name
-        user_id = call.from_user.id
         name = product["name"]
         price = product["price"]
+        user_name = call.from_user.first_name
+        user_id = call.from_user.id
 
-        # Текст для менеджера
         order_text = (
             f"📦 <b>Новый заказ</b>\n\n"
             f"🔹 <b>Товар:</b> {name}\n"
@@ -142,13 +184,13 @@ async def callback_handler(call: CallbackQuery):
             f"🆔 <b>ID:</b> {user_id}"
         )
 
-        # Шлём менеджеру
+        # Отправляем менеджеру
         try:
             await bot.send_message(MANAGER_ID, order_text)
         except Exception as e:
             print(f"Ошибка при отправке менеджеру: {e}")
 
-        # Сообщаем пользователю
+        # Уведомляем пользователя
         await call.answer("✅ Заказ оформлен! Менеджер скоро свяжется с вами.", show_alert=True)
 
     else:
@@ -156,11 +198,8 @@ async def callback_handler(call: CallbackQuery):
 
 
 async def main():
-    # Удаляем старый webhook, очищаем очередь апдейтов
     await bot.delete_webhook(drop_pending_updates=True)
-    # Запускаем бота в режиме polling
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
