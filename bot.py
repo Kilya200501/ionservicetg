@@ -106,7 +106,6 @@ def generate_product_keyboard(category):
 return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
-    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(f"{name} - {price}", callback_data=callback)]
         for name, price, callback in products[category]
@@ -119,5 +118,5 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
-if name == "__main__":
+if __name__ == "__main__":
     asyncio.run(main())
