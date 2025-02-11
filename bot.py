@@ -143,6 +143,11 @@ async def order_callback(call: types.CallbackQuery):
             f"🆔 ID клиента: `{user_id}`"
         )
 
+if keyboard.inline_keyboard:  # Проверяем, есть ли кнопки с товарами
+        await call.message.edit_text(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=keyboard)
+    else:
+        await call.answer("🔹 В этой категории пока нет товаров.", show_alert=True)
+
         # Отправляем заказ менеджерам
         for manager_id in MANAGER_IDS:
             await bot.send_message(manager_id, order_text, parse_mode="Markdown")
