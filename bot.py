@@ -52,36 +52,58 @@ def generate_subcategories(model):
 # Подключаем подкатегории ко всем моделям
 subcategories_menu = {f"iphone_{model}": generate_subcategories(model) for model in iphone_models}
 
-# Товары для всех моделей iPhone
-products = {}
-for model in iphone_models:
-    products[f"corpus_{model}"] = [
-        ("Средняя часть", "18,000₽", f"order_{model}_mid"),
-        ("Задняя крышка", "21,000₽", f"order_{model}_back"),
-    ]
-    products[f"display_{model}"] = [
-        ("Оригинальный снятый дисплей", "44,000₽ (идеал)", f"order_{model}_display"),
-    ]
-    products[f"camera_main_{model}"] = [
-        ("Основная камера", "9,000₽", f"order_{model}_main_camera"),
-    ]
-    products[f"camera_front_{model}"] = [
-        ("Фронтальная камера", "2,500₽", f"order_{model}_front_camera"),
-    ]
-    products[f"battery_{model}"] = [
-        ("Аккумулятор 100%", "6,000₽", f"order_{model}_battery"),
-    ]
-    products[f"flex_{model}"] = [
-        ("Шлейф зарядки", "5,500₽", f"order_{model}_flex"),
-    ]
-    products[f"speaker_{model}"] = [
-        ("Полифонический динамик", "500₽", f"order_{model}_speaker"),
-    ]
+# Товары для каждой модели iPhone
+products = {
+    # iPhone 16 Pro Max
+    "corpus_16_pro_max": [
+        ("Средняя часть", "18,000₽", "order_16_pro_max_mid"),
+        ("Задняя крышка", "21,000₽", "order_16_pro_max_back"),
+    ],
+    "display_16_pro_max": [
+        ("Оригинальный снятый дисплей", "44,000₽ (идеал)", "order_16_pro_max_display"),
+    ],
+    "camera_main_16_pro_max": [
+        ("Основная камера", "9,000₽", "order_16_pro_max_main_camera"),
+    ],
+    "camera_front_16_pro_max": [
+        ("Фронтальная камера", "2,500₽", "order_16_pro_max_front_camera"),
+    ],
+
+    # iPhone 15 Pro Max
+    "corpus_15_pro_max": [
+        ("Средняя часть", "10,000₽", "order_15_pro_max_mid"),
+        ("Задняя крышка", "23,000₽", "order_15_pro_max_back"),
+    ],
+    "display_15_pro_max": [
+        ("Оригинальный снятый дисплей", "32,000₽ (хорошее состояние)", "order_15_pro_max_display"),
+    ],
+    "camera_main_15_pro_max": [
+        ("Основная камера", "3,000₽", "order_15_pro_max_main_camera"),
+    ],
+    "camera_front_15_pro_max": [
+        ("Фронтальная камера", "1,000₽", "order_15_pro_max_front_camera"),
+    ],
+
+    # iPhone 14 Pro Max
+    "corpus_14_pro_max": [
+        ("Средняя часть eSIM", "10,000₽", "order_14_pro_max_mid"),
+        ("Задняя крышка", "21,000₽", "order_14_pro_max_back"),
+    ],
+    "display_14_pro_max": [
+        ("Оригинальный снятый дисплей", "30,000₽ (отличное состояние)", "order_14_pro_max_display"),
+    ],
+    "camera_main_14_pro_max": [
+        ("Основная камера", "3,000₽", "order_14_pro_max_main_camera"),
+    ],
+    "camera_front_14_pro_max": [
+        ("Фронтальная камера", "1,000₽", "order_14_pro_max_front_camera"),
+    ],
+}
 
 # Функция генерации клавиатуры с товарами
 def generate_product_keyboard(category):
     if category not in products:
-        return InlineKeyboardMarkup(inline_keyboard=[
+return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
     
@@ -92,87 +114,10 @@ def generate_product_keyboard(category):
     keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
     return keyboard
 
-# Обработчик команды /start
-@dp.message(CommandStart())
-async def start(message: Message):
-    await message.answer("👋 Привет! Я помощник компании Ion Service!\nВыберите категорию:", reply_markup=main_menu)
-
-# Обработчик выбора категории "iPhone"
-@dp.callback_query(lambda call: call.data == "category_iphone")
-async def category_callback(call: types.CallbackQuery):
-    await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
-
-# Обработчик выбора модели iPhone
-@dp.callback_query(lambda call: call.data.startswith("iphone_"))
-async def iphone_model_callback(call: types.CallbackQuery):
-    model = call.data.replace("iphone_", "").replace("_", " ").title()
-    await call.message.edit_text(f"Вы выбрали {model}.\nВыберите категорию:", reply_markup=subcategories_menu.get(call.data, main_menu))
-
-# Обработчик выбора подкатегории (Корпус, Дисплей и т. д.)
-
-@dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
-async def subcategory_callback(call: types.CallbackQuery):
-    category = call.data
-    keyboard = generate_product_keyboard(category)
-
-    
-    # Обработчик выбора товара
-@dp.callback_query(lambda call: call.data.startswith("order_"))
-async def order_callback(call: types.CallbackQuery):
-    product_found = None
-
-    # Поиск выбранного товара
-    for category, items in products.items():
-        for name, price, callback in items:
-            if call.data == callback:
-                product_found = (name, price)
-                break
-        if product_found:
-            break
-
-    if product_found:
-        name, price = product_found
-        user_name = call.from_user.first_name
-        user_id = call.from_user.id
-
-        order_text = (
-            f"📦 **Новый заказ!**\n\n"
-            f"🔹 Товар: {name}\n"
-            f"💰 Цена: {price}\n\n"
-            f"👤 Клиент: [{user_name}](tg://user?id={user_id})\n"
-            f"🆔 ID клиента: `{user_id}`"
-        )
-
-        # Отправляем заказ менеджерам
-        for manager_id in MANAGER_IDS:
-            await bot.send_message(manager_id, order_text, parse_mode="Markdown")
-
-        # Подтверждение клиенту
-        await call.message.answer(f"✅ Заказ оформлен!\n\n🔹 Товар: {name}\n💰 Цена: {price}\n\nМенеджер скоро свяжется с вами.")
-    else:
-        await call.answer("⚠️ Ошибка: товар не найден.", show_alert=True)
-
-# Обработчик кнопки "Назад" в меню моделей iPhone
-@dp.callback_query(lambda call: call.data == "back_iphone")
-async def back_iphone_callback(call: types.CallbackQuery):
-    await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
-
-# Обработчик кнопки "Назад" в главное меню
-@dp.callback_query(lambda call: call.data == "back_main")
-async def back_main_callback(call: types.CallbackQuery):
-    await call.message.edit_text("Выберите категорию:", reply_markup=main_menu)
-
-# Обработчик кнопки "Назад" в подкатегории
-@dp.callback_query(lambda call: call.data == "back_subcategory")
-async def back_subcategory_callback(call: types.CallbackQuery):
-    model_key = call.message.text.split("**")[1].lower().replace(" ", "_")
-    await call.message.edit_text("Выберите категорию:", reply_markup=subcategories_menu.get(f"iphone_{model_key}", main_menu))
-
 # Функция запуска бота
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
+if name == "__main__":
     asyncio.run(main())
-
