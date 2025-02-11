@@ -32,6 +32,44 @@ async def iphone_model_callback(call: types.CallbackQuery):
     model = call.data.replace("iphone_", "").replace("_", " ").title()
     await call.message.edit_text(f"Вы выбрали {model}.\nВыберите категорию:", reply_markup=subcategories_menu.get(call.data, main_menu))
 
+# Функция для генерации подкатегорий для каждой модели
+def generate_subcategories(model):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Корпус", callback_data=f"corpus_{model}")],
+        [InlineKeyboardButton(text="Дисплей", callback_data=f"display_{model}")],
+        [InlineKeyboardButton(text="Основная камера", callback_data=f"camera_main_{model}")],
+        [InlineKeyboardButton(text="Фронтальная камера", callback_data=f"camera_front_{model}")],
+        [InlineKeyboardButton(text="Аккумулятор", callback_data=f"battery_{model}")],
+        [InlineKeyboardButton(text="Шлейф зарядки", callback_data=f"flex_{model}")],
+        [InlineKeyboardButton(text="Динамик", callback_data=f"speaker_{model}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_iphone")],
+    ])
+
+# Подключаем подкатегории ко всем моделям
+subcategories_menu = {f"iphone_{model}": generate_subcategories(model) for model in iphone_models}
+
+# Обработчик выбора подкатегории (Корпус, Дисплей и т. д.)
+@dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
+async def subcategory_callback(call: types.CallbackQuery):
+    category = call.data
+    await call.message.edit_text(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=generate_product_keyboard(category))
+
+# Обработчик кнопки "Назад" в меню моделей iPhone
+@dp.callback_query(lambda call: call.data == "back_iphone")
+async def back_iphone_callback(call: types.CallbackQuery):
+    await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
+
+# Обработчик кнопки "Назад" в главное меню
+@dp.callback_query(lambda call: call.data == "back_main")
+async def back_main_callback(call: types.CallbackQuery):
+    await call.message.edit_text("Выберите категорию:", reply_markup=main_menu)
+
+# Обработчик кнопки "Назад" в подкатегории
+@dp.callback_query(lambda call: call.data == "back_subcategory")
+async def back_subcategory_callback(call: types.CallbackQuery):
+    model_key = call.message.text.split("**")[1].lower().replace(" ", "_")
+    await call.message.edit_text("Выберите категорию:", reply_markup=subcategories_menu.get(f"iphone_{model_key}", main_menu))
+
 # Список моделей iPhone
 iphone_models = [
     "16_pro_max", "16_pro", "16_plus", "15_pro_max", "15_pro", "15_plus",
