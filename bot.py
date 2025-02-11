@@ -22,6 +22,16 @@ main_menu = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📱 iPhone", callback_data="category_iphone")],
 ])
 
+
+@dp.callback_query(lambda call: call.data == "category_iphone")
+async def category_callback(call: types.CallbackQuery):
+    await call.message.edit_text("Выберите модель iPhone:", reply_markup=iphone_menu)
+
+@dp.callback_query(lambda call: call.data.startswith("iphone_"))
+async def iphone_model_callback(call: types.CallbackQuery):
+    model = call.data.replace("iphone_", "").replace("_", " ").title()
+    await call.message.edit_text(f"Вы выбрали {model}.\nВыберите категорию:", reply_markup=subcategories_menu.get(call.data, main_menu))
+
 # Список моделей iPhone
 iphone_models = [
     "16_pro_max", "16_pro", "16_plus", "15_pro_max", "15_pro", "15_plus",
