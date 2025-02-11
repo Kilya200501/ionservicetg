@@ -5,7 +5,11 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 
 # Получаем токен из переменной окружения
-TOKEN = os.getenv("8083923455:AAFwD2nAD5oPSeA16TrYjAgk_X2tw49F5n4")
+TOKEN = os.getenv("TOKEN")
+
+# Проверяем, есть ли токен
+if not TOKEN:
+    raise ValueError("Ошибка: переменная окружения TOKEN не установлена!")
 
 # Создаем бота и диспетчер
 bot = Bot(token=TOKEN)
