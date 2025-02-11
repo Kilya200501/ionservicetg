@@ -3,6 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import Dispatcher
 from aiogram.types import Message
+from aiogram.filters import CommandStart
 from aiogram import Bot
 import asyncio
 
@@ -14,9 +15,9 @@ dp = Dispatcher(bot=bot)
 # Обработчик /start
 from aiogram.filters import CommandStart
 
-@dp.message.register(CommandStart())
+@dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Привет! Бот работает на aiogram 3.x")
+    await message.answer("👋 Привет! Я помощник компании Ion Service!")
 
 async def main():
     await dp.start_polling(bot)
