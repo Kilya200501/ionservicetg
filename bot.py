@@ -156,12 +156,6 @@ def generate_product_keyboard(category):
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
 
-    def generate_product_keyboard(category):
-    if category not in products:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
-        ])
-
     keyboard = InlineKeyboardMarkup()
     for item in products[category]:
         if len(item) == 3:  # Проверяем, что в массиве 3 элемента (имя, цена, callback_data)
