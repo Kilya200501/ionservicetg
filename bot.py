@@ -101,9 +101,10 @@ products = {
 }
 
 # Функция генерации клавиатуры с товарами
+
 def generate_product_keyboard(category):
     if category not in products:
-return InlineKeyboardMarkup(inline_keyboard=[
+        return InlineKeyboardMarkup(inline_keyboard=[  # <-- Исправленный отступ
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
