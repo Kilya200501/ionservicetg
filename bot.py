@@ -102,6 +102,7 @@ def generate_product_keyboard(category):
 
     keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
     return keyboard
+    
 # Обработчик выбора подкатегории
 @dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
 async def subcategory_callback(call: types.CallbackQuery):
