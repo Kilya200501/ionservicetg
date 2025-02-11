@@ -89,11 +89,17 @@ products = {
 
 # Функция генерации клавиатуры с товарами
 def generate_product_keyboard(category):
-    if category not in products or not products[category]:
+    if category not in products or not products[category]:  # Проверяем, есть ли товары
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
         ])
 
+    keyboard = InlineKeyboardMarkup()  # Исправлено
+    for name, price, callback in products[category]:
+        keyboard.add(InlineKeyboardButton(f"{name} - {price}", callback_data=callback))
+
+    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory"))
+    return keyboard
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])  # Исправлено
     for name, price, callback in products[category]:
         keyboard.inline_keyboard.append([InlineKeyboardButton(f"{name} - {price}", callback_data=callback)])
