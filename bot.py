@@ -1,122 +1,182 @@
 import asyncio
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 
-# Получаем токен из переменной окружения
+# Получаем токен из переменных окружения
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
     raise ValueError("Ошибка: переменная окружения TOKEN не установлена!")
 
-# ID менеджеров, которым отправлять заказы (замени на реальные ID)
-MANAGER_IDS = [631954003]  # <-- Вставь Telegram ID менеджеров
+# ID менеджеров, которым отправлять заказы (замените на реальные)
+MANAGER_IDS = [631954003]
 
 # Создаем бота и диспетчер
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# ============================= Меню =============================
+
 # Главное меню
 main_menu = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📱 iPhone", callback_data="category_iphone")],
+    [InlineKeyboardButton(text="📟 iPad", callback_data="category_ipad")],
+    [InlineKeyboardButton(text="⌚ Apple Watch", callback_data="category_watch")],
+    [InlineKeyboardButton(text="💻 MacBook", callback_data="category_macbook")],
 ])
-
-# Обработчик команды /start
-@dp.message(CommandStart())
-async def start(message: Message):
-    await message.answer("👋 Привет! Я помощник компании Ion Service!\nВыберите категорию:", reply_markup=main_menu)
-
-# Список моделей iPhone
-iphone_models = [
-    "16_pro_max", "16_pro", "16_plus", "15_pro_max", "15_pro", "15_plus",
-    "14_pro_max", "14_pro", "14_plus", "14", "13_pro_max", "13_pro", "13",
-    "12_pro_max", "12_pro", "12", "11_pro_max", "11_pro", "11",
-    "xr", "xs_max", "xs", "x", "8_plus", "8", "7_plus", "7"
-]
 
 # Меню моделей iPhone
 iphone_menu = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text=f"iPhone {model.replace('_', ' ').title()}", callback_data=f"iphone_{model}")]
-    for model in iphone_models
-] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")]])
+    [InlineKeyboardButton(text="iPhone 16 Pro Max", callback_data="iphone_16_pro_max")],
+    [InlineKeyboardButton(text="iPhone 16 Pro", callback_data="iphone_16_pro")],
+    [InlineKeyboardButton(text="iPhone 16 Plus", callback_data="iphone_16_plus")],
+    [InlineKeyboardButton(text="iPhone 16", callback_data="iphone_16")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+])
 
-# Функция для генерации подкатегорий для каждой модели
-def generate_subcategories(model):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Корпус", callback_data=f"corpus_{model}")],
-        [InlineKeyboardButton(text="Дисплей", callback_data=f"display_{model}")],
-        [InlineKeyboardButton(text="Основная камера", callback_data=f"camera_main_{model}")],
-        [InlineKeyboardButton(text="Фронтальная камера", callback_data=f"camera_front_{model}")],
-        [InlineKeyboardButton(text="Аккумулятор", callback_data=f"battery_{model}")],
-        [InlineKeyboardButton(text="Шлейф зарядки", callback_data=f"flex_{model}")],
-        [InlineKeyboardButton(text="Динамик", callback_data=f"speaker_{model}")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_iphone")],
-    ])
+# Меню подкатегорий для iPhone 16 Pro Max
+iphone_16_pro_max_menu = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="Дисплей", callback_data="display_16_pro_max")],
+    [InlineKeyboardButton(text="Аккумулятор", callback_data="battery_16_pro_max")],
+    [InlineKeyboardButton(text="Корпус", callback_data="corpus_16_pro_max")],
+    # Новая кнопка — «Корпус (черный)»
+    [InlineKeyboardButton(text="Корпус (черный) - 20 000₽", callback_data="corpus_black_16_pro_max")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_iphone")],
+])
 
-# Подключаем подкатегории ко всем моделям
-subcategories_menu = {f"iphone_{model}": generate_subcategories(model) for model in iphone_models}
+# Товар «Дисплей iPhone 16 Pro Max»
+display_16_pro_max_menu = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🛒 Оформить заказ", callback_data="order_16_pro_max_display")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_16_pro_max")],
+])
 
-# Товары для каждой модели iPhone
-products = {
-    # iPhone 16 Pro Max
-    "corpus_16_pro_max": [
-        ("Средняя часть", "18,000₽", "order_16_pro_max_mid"),
-        ("Задняя крышка", "21,000₽", "order_16_pro_max_back"),
-    ],
-    "display_16_pro_max": [
-        ("Оригинальный снятый дисплей", "44,000₽ (идеал)", "order_16_pro_max_display"),
-    ],
+# Товар «Корпус (черный) iPhone 16 Pro Max»
+corpus_black_16_pro_max_menu = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🛒 Оформить заказ", callback_data="order_16_pro_max_corpus_black")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_16_pro_max")],
+])
 
-    # iPhone 15 Pro Max
-    "corpus_15_pro_max": [
-        ("Средняя часть", "10,000₽", "order_15_pro_max_mid"),
-        ("Задняя крышка", "23,000₽", "order_15_pro_max_back"),
-    ],
-    "display_15_pro_max": [
-        ("Оригинальный снятый дисплей", "32,000₽ (хорошее состояние)", "order_15_pro_max_display"),
-    ],
+# ========================== Обработчики ==========================
 
-    # iPhone 14 Pro Max
-    "corpus_14_pro_max": [
-        ("Средняя часть eSIM", "10,000₽", "order_14_pro_max_mid"),
-        ("Задняя крышка", "21,000₽", "order_14_pro_max_back"),
-    ],
-    "display_14_pro_max": [
-        ("Оригинальный снятый дисплей", "30,000₽ (отличное состояние)", "order_14_pro_max_display"),
-    ],
-}
+# /start
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    await message.answer(
+        text="👋 Здравствуйте! Я помощник компании **ION-Сервис**.\nВыберите категорию:",
+        reply_markup=main_menu,
+        parse_mode="Markdown"
+    )
 
+# Выбор категории (category_*)
+@dp.callback_query(F.data.startswith("category_"))
+async def category_callback(call: types.CallbackQuery):
+    if call.data == "category_iphone":
+        await call.message.edit_text(
+            text="Выберите модель iPhone:",
+            reply_markup=iphone_menu
+        )
+    else:
+        await call.answer("🔹 В этой категории пока нет товаров.", show_alert=True)
 
-# Функция генерации клавиатуры с товарами
-def generate_product_keyboard(category):
-    if category not in products or not products[category]:  # Проверяем, есть ли товары
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
-        ])
+# Выбор модели iPhone (iphone_*)
+@dp.callback_query(F.data.startswith("iphone_"))
+async def iphone_model_callback(call: types.CallbackQuery):
+    if call.data == "iphone_16_pro_max":
+        await call.message.edit_text(
+            text="Выберите категорию для **iPhone 16 Pro Max**:",
+            parse_mode="Markdown",
+            reply_markup=iphone_16_pro_max_menu
+        )
+    else:
+        await call.answer("🔹 В этой модели пока нет товаров.", show_alert=True)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])  # Исправлено: теперь создаём корректный объект
-
-    for name, price, callback in products[category]:
-        keyboard.inline_keyboard.append([InlineKeyboardButton(f"{name} - {price}", callback_data=callback)])
-
-    keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
-    return keyboard
-    
-# Обработчик выбора подкатегории
-@dp.callback_query(lambda call: call.data.startswith(("corpus_", "display_", "camera_", "battery_", "flex_", "speaker_")))
+# Подкатегории (display_*, battery_*, corpus_*)
+@dp.callback_query(F.data.startswith(("display_", "battery_", "corpus_")))
 async def subcategory_callback(call: types.CallbackQuery):
-    category = call.data
-    keyboard = generate_product_keyboard(category)
+    # Дисплей
+    if call.data == "display_16_pro_max":
+        await call.message.edit_text(
+            text="**Дисплей iPhone 16 Pro Max**\n"
+                 "💎 Состояние: Идеал\n"
+                 "💰 Цена: 25 000₽",
+            parse_mode="Markdown",
+            reply_markup=display_16_pro_max_menu
+        )
+    # Корпус (черный)
+    elif call.data == "corpus_black_16_pro_max":
+        await call.message.edit_text(
+            text="**Корпус (черный) iPhone 16 Pro Max**\n"
+                 "💎 Состояние: Идеал\n"
+                 "💰 Цена: 20 000₽",
+            parse_mode="Markdown",
+            reply_markup=corpus_black_16_pro_max_menu
+        )
+    else:
+        # Для остальных подкатегорий пока нет наполнения
+        await call.answer("🔹 В этой категории пока нет товаров.", show_alert=True)
 
-    try:
-        await call.message.delete()  # Удаляем старое сообщение
-        await call.message.answer(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=keyboard)
-    except Exception as e:
-        await call.answer(f"Ошибка: {e}", show_alert=True)
+# Оформление заказа (order_*)
+@dp.callback_query(F.data.startswith("order_"))
+async def order_callback(call: types.CallbackQuery):
+    user_name = call.from_user.first_name
+    user_id = call.from_user.id
 
-# Функция запуска бота
+    # Определяем, какой товар заказали
+    if call.data == "order_16_pro_max_display":
+        order_text = (
+            f"📦 **Новый заказ!**\n\n"
+            f"🔹 **Товар**: Дисплей iPhone 16 Pro Max\n"
+            f"💎 **Состояние**: Идеал\n"
+            f"💰 **Цена**: 25 000₽\n\n"
+            f"👤 **Клиент**: [{user_name}](tg://user?id={user_id})\n"
+            f"🆔 **ID клиента**: `{user_id}`"
+        )
+    elif call.data == "order_16_pro_max_corpus_black":
+        order_text = (
+            f"📦 **Новый заказ!**\n\n"
+            f"🔹 **Товар**: Корпус (черный) iPhone 16 Pro Max\n"
+            f"💎 **Состояние**: Идеал\n"
+            f"💰 **Цена**: 20 000₽\n\n"
+            f"👤 **Клиент**: [{user_name}](tg://user?id={user_id})\n"
+            f"🆔 **ID клиента**: `{user_id}`"
+        )
+    else:
+        await call.answer("Неизвестный товар", show_alert=True)
+        return
+
+    # Рассылка менеджерам
+    for manager_id in MANAGER_IDS:
+        await bot.send_message(manager_id, order_text, parse_mode="Markdown")
+
+    # Сообщение пользователю
+    await call.message.answer("✅ Заказ оформлен! Менеджер скоро свяжется с вами.")
+
+# Кнопка «Назад» (back_*)
+@dp.callback_query(F.data.startswith("back_"))
+async def back_callback(call: types.CallbackQuery):
+    if call.data == "back_main":
+        await call.message.edit_text(
+            text="Выберите категорию:",
+            reply_markup=main_menu
+        )
+    elif call.data == "back_iphone":
+        await call.message.edit_text(
+            text="Выберите модель iPhone:",
+            reply_markup=iphone_menu
+        )
+    elif call.data == "back_16_pro_max":
+        await call.message.edit_text(
+            text="Выберите категорию для **iPhone 16 Pro Max**:",
+            parse_mode="Markdown",
+            reply_markup=iphone_16_pro_max_menu
+        )
+
+# ========================== Запуск бота ==========================
+
 async def main():
+    # Удаляем Webhook (если был) и запускаем бота в режиме Polling
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
