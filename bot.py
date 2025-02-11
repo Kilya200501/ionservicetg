@@ -12,7 +12,9 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(bot=bot)
 
 # Обработчик /start
-@dp.message(lambda message: message.text == "/start")
+from aiogram.filters import CommandStart
+
+@dp.message.register(CommandStart())
 async def start(message: Message):
     await message.answer("Привет! Бот работает на aiogram 3.x")
 
