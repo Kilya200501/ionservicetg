@@ -1,7 +1,26 @@
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+from aiogram import Dispatcher
+from aiogram.types import Message
+from aiogram import Bot
+import asyncio
+
+# Инициализация
+TOKEN = "8083923455:AAFwD2nAD5oPSeA16TrYjAgk_X2tw49F5n4"
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+# Обработчик /start
+@dp.message(lambda message: message.text == "/start")
+async def start(message: Message):
+    await message.answer("Привет! Бот работает на aiogram 3.x")
+
+async def main():
+    await dp.start_polling(bot)
+
+if _name_ == "_main_":
+    asyncio.run(main())
 
 # Токен от BotFather
 TOKEN = "8083923455:AAFwD2nAD5oPSeA16TrYjAgk_X2tw49F5n4"
