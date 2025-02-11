@@ -130,5 +130,5 @@ async def part_callback(call: types.CallbackQuery):
     await call.message.edit_text(text, reply_markup=back_button)
 
 # Запуск бота
-if _name_ == '_main_':
+if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
