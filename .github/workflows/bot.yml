@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: "0 * * * *"  # Запускает бота каждый час
+    - cron: "0 * * * *"  # Запуск каждый час
 
 jobs:
   run:
@@ -25,4 +25,6 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run bot
+        env:
+          TOKEN: ${{ secrets.TOKEN }}  # <-- Теперь GitHub использует секретный токен
         run: python bot.py
