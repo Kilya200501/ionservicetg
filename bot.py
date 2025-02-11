@@ -52,28 +52,42 @@ def generate_subcategories(model):
 # Подключаем подкатегории ко всем моделям
 subcategories_menu = {f"iphone_{model}": generate_subcategories(model) for model in iphone_models}
 
-# Товары (полностью добавленные из твоего списка)
-products = {
-    "corpus_16_pro_max": [
-        ("Средняя часть", "18,000₽", "order_16_pro_max_mid"),
-        ("Задняя крышка", "21,000₽", "order_16_pro_max_back"),
-    ],
-    "display_16_pro_max": [
-        ("Оригинальный снятый дисплей", "44,000₽ (идеал)", "order_16_pro_max_display"),
-    ],
-    "camera_main_16_pro_max": [
-        ("Основная камера", "9,000₽", "order_16_pro_max_main_camera"),
-    ],
-    "camera_front_16_pro_max": [
-        ("Фронтальная камера", "2,500₽", "order_16_pro_max_front_camera"),
-    ],
-}
+# Товары для всех моделей iPhone
+products = {}
+for model in iphone_models:
+    products[f"corpus_{model}"] = [
+        ("Средняя часть", "18,000₽", f"order_{model}_mid"),
+        ("Задняя крышка", "21,000₽", f"order_{model}_back"),
+    ]
+    products[f"display_{model}"] = [
+        ("Оригинальный снятый дисплей", "44,000₽ (идеал)", f"order_{model}_display"),
+    ]
+    products[f"camera_main_{model}"] = [
+        ("Основная камера", "9,000₽", f"order_{model}_main_camera"),
+    ]
+    products[f"camera_front_{model}"] = [
+        ("Фронтальная камера", "2,500₽", f"order_{model}_front_camera"),
+    ]
+    products[f"battery_{model}"] = [
+        ("Аккумулятор 100%", "6,000₽", f"order_{model}_battery"),
+    ]
+    products[f"flex_{model}"] = [
+        ("Шлейф зарядки", "5,500₽", f"order_{model}_flex"),
+    ]
+    products[f"speaker_{model}"] = [
+        ("Полифонический динамик", "500₽", f"order_{model}_speaker"),
+    ]
 
 # Функция генерации клавиатуры с товарами
 def generate_product_keyboard(category):
+    if category not in products:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")]
+        ])
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(f"{name} - {price}", callback_data=callback)]
-        for name, price, callback in products.get(category, [])
+        for name, price, callback in products[category]
     ])
     keyboard.inline_keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_subcategory")])
     return keyboard
@@ -123,3 +137,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
