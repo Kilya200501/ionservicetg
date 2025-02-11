@@ -27,7 +27,7 @@ BASE_API_URL = "https://example.com/api/v1"
 
 # 3) (Опционально) Ключ/токен для авторизации вашего API.
 #    Если API не требует токен, укажите API_KEY = None.
-API_KEY = "https://ion-master.ru/"  # или None, если не нужно
+API_KEY = "OL3sA4OR8Re6ProXXtgGno6fZnIQm4Izh0VaO3fFjFeE3SeWp1CtARi5W6By1oLx7TossLIknQd6yc2Mi39BGrO40DQNlAfgcOO6VIwsv5xsneCtnCqH2Gwp0nf0WuDrtfnBcWkjNHqHVFbqAtMfXPLHzuz5fb7UcSJdLFYTU3Smo63YzRvCnVHelN2LZr91LgFUt07QdTkCvb8kFtyUm8aOSdzbWVrQP0sST1RUrHPNzhScjlGwlBef4dRempOW"  # или None, если не нужно
 
 # 4) Заголовки для HTTP-запросов (если нужна авторизация).
 HEADERS = {}
