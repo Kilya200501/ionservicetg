@@ -114,11 +114,43 @@ async def iphone_model_callback(call: types.CallbackQuery):
 async def subcategory_callback(call: types.CallbackQuery):
     category = call.data
     keyboard = generate_product_keyboard(category)
+
     
-    if keyboard.inline_keyboard:  # Проверяем, есть ли кнопки с товарами
-        await call.message.edit_text(f"Вы выбрали: {category.split('_')[0].title()}.\nВыберите товар:", reply_markup=keyboard)
+    # Обработчик выбора товара
+@dp.callback_query(lambda call: call.data.startswith("order_"))
+async def order_callback(call: types.CallbackQuery):
+    product_found = None
+
+    # Поиск выбранного товара
+    for category, items in products.items():
+        for name, price, callback in items:
+            if call.data == callback:
+                product_found = (name, price)
+                break
+        if product_found:
+            break
+
+    if product_found:
+        name, price = product_found
+        user_name = call.from_user.first_name
+        user_id = call.from_user.id
+
+        order_text = (
+            f"📦 **Новый заказ!**\n\n"
+            f"🔹 Товар: {name}\n"
+            f"💰 Цена: {price}\n\n"
+            f"👤 Клиент: [{user_name}](tg://user?id={user_id})\n"
+            f"🆔 ID клиента: `{user_id}`"
+        )
+
+        # Отправляем заказ менеджерам
+        for manager_id in MANAGER_IDS:
+            await bot.send_message(manager_id, order_text, parse_mode="Markdown")
+
+        # Подтверждение клиенту
+        await call.message.answer(f"✅ Заказ оформлен!\n\n🔹 Товар: {name}\n💰 Цена: {price}\n\nМенеджер скоро свяжется с вами.")
     else:
-        await call.answer("🔹 В этой категории пока нет товаров.", show_alert=True)
+        await call.answer("⚠️ Ошибка: товар не найден.", show_alert=True)
 
 # Обработчик кнопки "Назад" в меню моделей iPhone
 @dp.callback_query(lambda call: call.data == "back_iphone")
