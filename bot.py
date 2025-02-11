@@ -1,4 +1,3 @@
-> Коля:
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, types
