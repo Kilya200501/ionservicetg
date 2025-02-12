@@ -13,7 +13,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 # ------------------- НАСТРОЙКИ -------------------
-TOKEN = "ВАШ_TELEGRAM_BOT_TOKEN"  # Вставьте реальный токен бота
+TOKEN = "8102076873:AAHf_fPaG5n2tr5C1NnoOVJ62MnIo-YbRi8"  # Вставьте реальный токен бота
 FEED_URL = "https://ion-master.ru/index.php?route=extension/feed/yandex_yml"
 MANAGER_ID = 5300643604  # ID менеджера для уведомлений о заказе
 
