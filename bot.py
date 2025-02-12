@@ -4,45 +4,64 @@ import aiohttp
 from math import ceil
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton)
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
 from aiogram.filters import Command
 
-# ===================== НАСТРОЙКИ =====================
+# ======================= НАСТРОЙКИ ========================
 
-BEARER_TOKEN = "a0c97969df1cb7910b04d04e1cc8444c29985509"  # ВАШ ТОКЕН ИЗ МОЙСКЛАД
+# 1) Токен МойСклад (Bearer), полученный под пользователем, который видит папки
+BEARER_TOKEN = "8a9dee615a9199934cce481008091fcf465c98cf"
+
+# 2) Базовый URL МойСклад
 BASE_URL = "https://online.moysklad.ru/api/remap/1.2"
-MANAGER_ID = 5300643604  # ID менеджера (кто получает уведомления о заказе)
 
-CACHE_TTL = 300         # (сек) время кэширования (5 минут)
-ITEMS_PER_PAGE = 10     # сколько позиций (подкатегории + товары) на странице
+# 3) ID менеджера (TG user) для уведомлений о заказе
+MANAGER_ID = 5300643604
 
-# Создаём бота (aiogram 3.7+), без parse_mode
-TOKEN = "8102076873:AAHf_fPaG5n2tr5C1NnoOVJ62MnIo-YbRi8" 
+# 4) Время кэширования (в сек). Пока не истечёт, бот не будет заново грузить
+CACHE_TTL = 300
+
+# 5) Макс. кол-во позиций (папки/товары) на странице в Телеграм
+ITEMS_PER_PAGE = 10
+
+# 6) Токен Телеграм-бота
+TOKEN = "8102076873:AAHf_fPaG5n2tr5C1NnoOVJ62MnIo-YbRi8"
+
+# ----------------------------------------------------------
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # Глобальные структуры
 CATEGORIES = {}       # cat_id -> {id, parent, name, children: [...]}
-CAT_ROOTS = []        # список корневых (где parent=None)
-CAT_PRODUCTS = {}     # cat_id -> [{id, name, price}, ...]
+CAT_ROOTS = []        # список корневых папок
+CAT_PRODUCTS = {}     # cat_id -> [ {id, name, price}, ... ]
 last_update_time = 0.0
 fetch_lock = asyncio.Lock()
 
-session = None  # aiohttp.ClientSession, чтобы переиспользовать
+# aiohttp.Session и заголовок для МойСклад
+session = None
 headers = {
     "Authorization": f"Bearer {BEARER_TOKEN}"
 }
 
 
-# ===================== ФУНКЦИИ ДЛЯ ЗАПРОСОВ МОЙСКЛАД =====================
+# ====================== ФУНКЦИИ =======================
 
 async def init_session():
+    """Создаем aiohttp.ClientSession один раз."""
     global session
     if session is None:
         session = aiohttp.ClientSession()
 
 
 async def close_session():
+    """Закрываем при выходе."""
     global session
     if session:
         await session.close()
@@ -51,61 +70,59 @@ async def close_session():
 
 async def fetch_all_productfolders():
     """
-    Запрашивает все папки (группы) товаров, с учётом пагинации МойСклад.
-    Результат: суммарный список (rows).
-    Документация:
-    https://dev.moysklad.ru/doc/api/remap/1.2/dictionaries/#suschnosti-gruppa-towarow
+    Запрашиваем все папки (productfolder) (с пагинацией МойСклад).
+    Выводим отладку: status и часть data.
     """
     rows = []
     limit = 100
     offset = 0
-
     while True:
         url = f"{BASE_URL}/entity/productfolder?limit={limit}&offset={offset}"
+        print(f"Запрос папок: {url}")
         async with session.get(url, headers=headers) as resp:
+            print("Status (folders) =", resp.status)
             data = await resp.json()
+            print("Data (folder) part =", str(data)[:500])  # печатаем первые 500 символов
             chunk = data.get("rows", [])
             rows.extend(chunk)
-            # Проверяем, есть ли ещё
             meta = data.get("meta", {})
-            size = meta.get("size", 0)  # общее число
-            if offset + limit >= size:
+            size = meta.get("size", 0)
+            if offset+limit >= size:
                 break
-            offset += limit
+            offset+=limit
     return rows
 
 
 async def fetch_all_products():
     """
-    Запрашивает все товары (product), с учётом пагинации.
-    Документация:
-    https://dev.moysklad.ru/doc/api/remap/1.2/dictionaries/#suschnosti-towar
+    Запрашиваем все товары (product) (с пагинацией).
+    Аналогично выводим отладку.
     """
     rows = []
     limit = 100
     offset = 0
-
     while True:
         url = f"{BASE_URL}/entity/product?limit={limit}&offset={offset}"
+        print(f"Запрос товаров: {url}")
         async with session.get(url, headers=headers) as resp:
+            print("Status (products) =", resp.status)
             data = await resp.json()
+            print("Data (product) part =", str(data)[:500])
             chunk = data.get("rows", [])
             rows.extend(chunk)
             meta = data.get("meta", {})
             size = meta.get("size", 0)
-            if offset + limit >= size:
+            if offset+limit >= size:
                 break
-            offset += limit
+            offset+=limit
     return rows
 
 
-async def fetch_data(force: bool = False):
+async def fetch_data(force=False):
     """
-    Кэшируем на CACHE_TTL. Если (time - last_update_time) < CACHE_TTL,
-    не загружаем повторно (если force=False).
+    Кэшируем данные. Если (time - last_update_time) < CACHE_TTL, пропускаем.
     """
     global last_update_time, CATEGORIES, CAT_ROOTS, CAT_PRODUCTS
-
     now = time.time()
     if not force and (now - last_update_time) < CACHE_TTL:
         return
@@ -115,34 +132,24 @@ async def fetch_data(force: bool = False):
         if not force and (now - last_update_time) < CACHE_TTL:
             return
 
-        # Загружаем папки (productFolder)
-        folders = await fetch_all_productfolders()
-        # Загружаем товары (product)
-        products = await fetch_all_products()
+        # 1) грузим папки
+        folder_rows = await fetch_all_productfolders()
+        # 2) грузим товары
+        product_rows = await fetch_all_products()
 
-        # Очищаем локальные структуры
+        # Очищаем
         CATEGORIES.clear()
         CAT_ROOTS.clear()
         CAT_PRODUCTS.clear()
 
-        # 1) Строим словарь категорий
-        for f in folders:
-            # Пример f: {
-            #   "id": "GUID",
-            #   "name": "iPhone",
-            #   "productFolder": True,
-            #   "pathName": "Apple",
-            #   "meta": {...},
-            #   "parentFolder": {...} # может указывать на родителя
-            # }
+        # Построение дерева папок
+        for f in folder_rows:
             folder_id = f["id"]  # GUID
             parent_meta = f.get("parentFolder")
             parent_id = None
             if parent_meta and "meta" in parent_meta:
-                # берём GUID из href
-                # обычно "href": "https://online.moysklad.ru/api/remap/1.2/entity/productfolder/xxx"
                 href = parent_meta["meta"]["href"]
-                parent_id = href.split("/")[-1]  # GUID
+                parent_id = href.split("/")[-1]
             name = f.get("name","Без названия")
 
             CATEGORIES[folder_id] = {
@@ -152,7 +159,7 @@ async def fetch_data(force: bool = False):
                 "children": []
             }
 
-        # Связываем дерево
+        # Связываем, определяем корни
         for cid, cat_data in CATEGORIES.items():
             pid = cat_data["parent"]
             if pid and pid in CATEGORIES:
@@ -160,29 +167,19 @@ async def fetch_data(force: bool = False):
             else:
                 CAT_ROOTS.append(cid)
 
-        # 2) Строим словарь товаров
-        for p in products:
-            # p может содержать:
-            # {
-            #   "id": "GUID",
-            #   "name": "iPhone 16 Pro",
-            #   "productFolder": { "meta": {...}, ...}  # ссылка на папку
-            #   "salePrices": [ { "value": 3000000, ... } ]
-            #   ...
-            # }
+        # Список товаров
+        for p in product_rows:
             prod_id = p["id"]
             name = p.get("name","Без названия")
             sale_price = 0
-            sale_prices = p.get("salePrices", [])
+            sale_prices = p.get("salePrices",[])
             if sale_prices:
-                sale_price = sale_prices[0].get("value", 0) / 100  # в копейках
-
+                sale_price = sale_prices[0].get("value",0)/100
             folder_meta = p.get("productFolder")
             cat_id = None
             if folder_meta and "meta" in folder_meta:
                 href = folder_meta["meta"]["href"]
-                cat_id = href.split("/")[-1]  # GUID папки
-
+                cat_id = href.split("/")[-1]
             if cat_id:
                 if cat_id not in CAT_PRODUCTS:
                     CAT_PRODUCTS[cat_id] = []
@@ -193,24 +190,22 @@ async def fetch_data(force: bool = False):
                 })
 
         last_update_time = time.time()
+        print("Данные из МойСклад обновлены. Папок:", len(CATEGORIES), "Товаров:", sum(len(v) for v in CAT_PRODUCTS.values()))
 
-
-# ============== ПОСТРОЕНИЕ ВЫВОДА ==============
 
 def get_entries(cat_id: str):
     """
-    Возвращает список «подкатегории + товары» для категории cat_id
-    (вместе, чтобы пагинировать).
+    Подкатегории + товары (вместе) => для пагинации в Telegram.
     """
     entries = []
     cat_data = CATEGORIES.get(cat_id)
     if cat_data:
-        for child_id in cat_data["children"]:
-            child_name = CATEGORIES[child_id]["name"]
+        for scid in cat_data["children"]:
+            sc_name = CATEGORIES[scid]["name"]
             entries.append({
                 "type": "cat",
-                "id": child_id,
-                "name": child_name
+                "id": scid,
+                "name": sc_name
             })
     prods = CAT_PRODUCTS.get(cat_id, [])
     for p in prods:
@@ -225,18 +220,16 @@ def get_entries(cat_id: str):
 
 def build_kb_for_category(cat_id: str, page=0):
     """
-    Пагинация: собираем subcats+products => ITEMS_PER_PAGE на странице.
+    Пагинация списка (подкатегории + товары).
     """
     all_entries = get_entries(cat_id)
     total = len(all_entries)
     total_pages = ceil(total/ITEMS_PER_PAGE) if total else 1
-
-    # ограничиваем page
     if page<0: page=0
     if page>=total_pages: page=total_pages-1
 
-    start_i = page * ITEMS_PER_PAGE
-    end_i = start_i + ITEMS_PER_PAGE
+    start_i = page*ITEMS_PER_PAGE
+    end_i = start_i+ITEMS_PER_PAGE
     page_entries = all_entries[start_i:end_i]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -250,15 +243,15 @@ def build_kb_for_category(cat_id: str, page=0):
             ])
         else:
             # товар
-            text_btn = f"{e['name']} - {e['price']}₽"
+            btn_txt = f"{e['name']} - {e['price']}₽"
             kb.inline_keyboard.append([
                 InlineKeyboardButton(
-                    text=text_btn,
+                    text=btn_txt,
                     callback_data=f"prod_{e['id']}_{cat_id}"
                 )
             ])
 
-    nav_row = []
+    nav_row=[]
     if page>0:
         nav_row.append(
             InlineKeyboardButton(
@@ -279,8 +272,6 @@ def build_kb_for_category(cat_id: str, page=0):
     return kb, page, total_pages
 
 
-# ============== ХЭНДЛЕРЫ AIROGRAM ==============
-
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     await init_session()
@@ -293,18 +284,16 @@ async def cmd_start(message: Message):
         )
         return
 
-    # Покажем список корневых категорий
-    # (также с пагинацией, если много)
+    # Покажем корневые категории
     root_list = []
-    for cid in CAT_ROOTS:
-        nm = CATEGORIES[cid]["name"]
-        root_list.append((cid, nm))
-
-    # Сортируем корневые категории по алфавиту
+    for r in CAT_ROOTS:
+        nm = CATEGORIES[r]["name"]
+        root_list.append((r, nm))
+    # Сортируем
     root_list.sort(key=lambda x: x[1].lower())
 
     total = len(root_list)
-    total_pages = ceil(total / ITEMS_PER_PAGE) if total else 1
+    total_pages = ceil(total/ITEMS_PER_PAGE) if total else 1
     page = 0
 
     start_i = page*ITEMS_PER_PAGE
@@ -338,7 +327,7 @@ async def cmd_start(message: Message):
     if nav_row:
         kb.inline_keyboard.append(nav_row)
 
-    text = "<b>Выберите категорию (из МойСклад):</b>"
+    text = "<b>Выберите категорию (МойСклад):</b>"
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -348,11 +337,13 @@ async def callback_router(call: CallbackQuery):
 
     if data.startswith("roots_"):
         # Пагинация корневых
-        page = int(data.split("_",1)[1])
+        page_str = data.split("_",1)[1]
+        page = int(page_str)
+
         root_list = []
-        for cid in CAT_ROOTS:
-            nm = CATEGORIES[cid]["name"]
-            root_list.append((cid,nm))
+        for r in CAT_ROOTS:
+            nm = CATEGORIES[r]["name"]
+            root_list.append((r,nm))
         root_list.sort(key=lambda x: x[1].lower())
 
         total = len(root_list)
@@ -360,8 +351,8 @@ async def callback_router(call: CallbackQuery):
         if page<0: page=0
         if page>=total_pages: page=total_pages-1
 
-        start_i = page*ITEM_PER_PAGE
-        end_i = start_i+ITEM_PER_PAGE
+        start_i = page*ITEMS_PER_PAGE
+        end_i = start_i+ITEMS_PER_PAGE
         page_entries = root_list[start_i:end_i]
 
         kb = InlineKeyboardMarkup(inline_keyboard=[])
@@ -372,6 +363,7 @@ async def callback_router(call: CallbackQuery):
                     callback_data=f"cat_{cid}_0"
                 )
             ])
+
         nav_row=[]
         if page>0:
             nav_row.append(
@@ -391,50 +383,51 @@ async def callback_router(call: CallbackQuery):
             kb.inline_keyboard.append(nav_row)
 
         await call.message.edit_text(
-            "<b>Выберите категорию (из МойСклад):</b>",
+            "<b>Выберите категорию (МойСклад):</b>",
             parse_mode="HTML",
             reply_markup=kb
         )
 
     elif data.startswith("cat_"):
-        # "cat_{cat_id}_{page}"
+        # cat_{cat_id}_{page}
         parts = data.split("_")
         cat_id = parts[1]
         page = int(parts[2])
         kb, cur_page, total_pages = build_kb_for_category(cat_id, page)
-        cat_name = CATEGORIES[cat_id]["name"]
+        cat_name = CATEGORIES[cat_id]["name"] if cat_id in CATEGORIES else "???"
         all_ents = get_entries(cat_id)
         cnt = len(all_ents)
         text = f"<b>{cat_name}</b>\n"
         if cnt==0:
-            text+="\nПусто."
+            text += "\n(Пусто.)"
         else:
-            text+=f"\nСтраница {cur_page+1}/{total_pages}"
+            text += f"\nСтраница {cur_page+1}/{total_pages}"
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data.startswith("prod_"):
-        # "prod_{productGUID}_{catGUID}"
+        # prod_{prod_id}_{cat_id}
         _, prod_id, cat_id = data.split("_",2)
-        # Ищем товар
-        prod_list = CAT_PRODUCTS.get(cat_id, [])
-        product = next((p for p in prod_list if p["id"]==prod_id), None)
+        prods = CAT_PRODUCTS.get(cat_id,[])
+        product = next((p for p in prods if p["id"]==prod_id), None)
         if not product:
             await call.answer("Товар не найден", show_alert=True)
             return
         text = f"<b>{product['name']}</b>\nЦена: {product['price']}₽"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="Оформить заказ",
-                callback_data=f"order_{prod_id}_{cat_id}"
-            )
-        ]])
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="Оформить заказ",
+                    callback_data=f"order_{prod_id}_{cat_id}"
+                )
+            ]]
+        )
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data.startswith("order_"):
-        # "order_{productGUID}_{catGUID}"
+        # order_{prod_id}_{cat_id}
         _, prod_id, cat_id = data.split("_",2)
-        prod_list = CAT_PRODUCTS.get(cat_id, [])
-        product = next((p for p in prod_list if p["id"]==prod_id), None)
+        prods = CAT_PRODUCTS.get(cat_id,[])
+        product = next((p for p in prods if p["id"]==prod_id), None)
         if not product:
             await call.answer("Товар не найден", show_alert=True)
             return
@@ -452,6 +445,7 @@ async def callback_router(call: CallbackQuery):
 
     else:
         await call.answer("Неизвестная команда")
+
 
 async def main():
     await init_session()
