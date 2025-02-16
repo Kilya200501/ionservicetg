@@ -2,404 +2,444 @@ import os
 import re
 import logging
 import asyncio
-import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional
+import xml.etree.ElementTree as ET
 
 import requests
 from dotenv import load_dotenv
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import (
-    Message, CallbackQuery, ContentType,
-    InlineKeyboardMarkup, InlineKeyboardButton,
-    ReplyKeyboardMarkup, KeyboardButton
+    Message,
+    CallbackQuery,
+    ContentType,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton
 )
 
 ###############################################################################
-# 1. Настройка окружения и логирования
+# 1. Загрузка окружения и настройка логов
 ###############################################################################
 load_dotenv()
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-YML_URL = os.getenv("YML_URL", "")  # Если пустое — не используем фид
 MANAGER_CHAT_ID = int(os.getenv("MANAGER_CHAT_ID", "0"))
+# Ссылка на YML-фид (меняется при необходимости)
+YML_URL = "https://ion-master.ru/index.php?route=extension/feed/yaoexport"
 
 logging.basicConfig(level=logging.INFO)
 
 ###############################################################################
-# 2. Глобальные структуры: user_data и families
+# 2. Глобальные структуры
 ###############################################################################
-# user_data: хранит данные по каждому пользователю:
-#    user_data[user_id] = {
+# Для каждого пользователя храним телефон и выбранный товар (если оформляет заказ)
+#   user_data[user_id] = {
 #       "phone": Optional[str],
 #       "selected_item": Optional[Dict[str, Any]]
-#    }
+#   }
 user_data: Dict[int, Dict[str, Any]] = {}
 
-# families: хранит список групп (iPhone, Apple Watch и т.д.) и их подгруппы
-families: List[Dict[str, Any]] = []
+# Список корневых категорий (те, у которых нет родителя)
+categories_tree: List[Dict[str, Any]] = []
+
+# Словарь для поиска категорий по ID
+cat_by_id: Dict[str, Dict[str, Any]] = {}
 
 ###############################################################################
-# 2.1 Функции для парсинга YML-файла (или обращения к сайту)
+# 3. Парсинг YML-фида
 ###############################################################################
-def fetch_offers_from_yml(url: str) -> List[Dict[str, Any]]:
+def parse_yml_feed(url: str) -> None:
     """
-    Загружает и парсит YML/XML-файл:
-      <yml_catalog>
-        <shop>
-          <offers>
-            <offer id="..." available="true">
-              <name>...</name>
-              <price>...</price>
-              <vendorCode>...</vendorCode>
-            </offer>
-          </offers>
-        </shop>
-      </yml_catalog>
-
-    Возвращает список словарей:
-      [
-        {
-          "id": str,
-          "name": str,
-          "price": float,
-          "available": bool,
-          "vendorCode": str
-        }, ...
-      ]
+    Скачивает и парсит YML-фид по ссылке:
+      1) Читает <categories> (id, parentId, name)
+      2) Читает <offers> (привязка к categoryId)
+    Заполняет глобальные переменные:
+      - categories_tree (список корневых категорий)
+      - cat_by_id (словарь id->категория)
     """
-    if not url:
-        # Если URL не задан, возвращаем пустой список
-        return []
 
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-    except (requests.RequestException, ValueError) as e:
-        logging.error(f"Не удалось загрузить YML-фид: {e}")
-        return []
+    global categories_tree, cat_by_id
 
+    # Очищаем структуры, чтобы не накапливать старые данные
+    categories_tree = []
+    cat_by_id.clear()
+
+    # 1. Скачивание
     try:
-        root = ET.fromstring(response.text)
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logging.error(f"Ошибка загрузки YML-фида: {e}")
+        return
+
+    # 2. Парсинг XML
+    try:
+        root = ET.fromstring(resp.text)
     except ET.ParseError as e:
         logging.error(f"Ошибка парсинга XML: {e}")
-        return []
+        return
 
     shop_el = root.find('shop')
     if shop_el is None:
-        return []
+        logging.error("Не найден тег <shop> в YML.")
+        return
 
+    cats_el = shop_el.find('categories')
     offers_el = shop_el.find('offers')
-    if offers_el is None:
-        return []
+    if cats_el is None or offers_el is None:
+        logging.error("Не найдены <categories> или <offers> в YML.")
+        return
 
-    offers = []
+    # 3. Считываем категории
+    for cat_el in cats_el.findall('category'):
+        cat_id = cat_el.get('id', '').strip()
+        parent_id = cat_el.get('parentId')
+        cat_name = (cat_el.text or "No name").strip()
+
+        cat_by_id[cat_id] = {
+            "id": cat_id,
+            "name": cat_name,
+            "parent_id": parent_id,
+            "children": [],
+            "items": []
+        }
+
+    # Связываем parent->children
+    for c_id, cat in cat_by_id.items():
+        pid = cat["parent_id"]
+        if pid and pid in cat_by_id:
+            cat_by_id[pid]["children"].append(cat)
+        else:
+            # Если нет родителя или он не найден, это корневая категория
+            categories_tree.append(cat)
+
+    # 4. Считываем товары (offers)
     for offer_el in offers_el.findall('offer'):
-        offer_id = offer_el.get('id', '')
+        off_id = offer_el.get('id', '')
         available_str = offer_el.get('available', 'false')
         is_available = (available_str.lower() == 'true')
 
-        price_el = offer_el.find('price')
         name_el = offer_el.find('name')
-        vendor_el = offer_el.find('vendorCode')
+        price_el = offer_el.find('price')
+        vend_el = offer_el.find('vendorCode')
+        cat_id_el = offer_el.find('categoryId')
 
+        name_val = name_el.text if (name_el is not None and name_el.text) else "No name"
         price_val = float(price_el.text) if (price_el is not None and price_el.text) else 0.0
-        name_val = name_el.text if name_el is not None else "No name"
-        vendor_val = vendor_el.text if vendor_el is not None else ""
+        vendor_val = vend_el.text if (vend_el is not None and vend_el.text) else ""
+        c_id = cat_id_el.text if (cat_id_el is not None and cat_id_el.text) else ""
 
-        offers.append({
-            "id": offer_id,
+        item = {
+            "id": off_id,
             "name": name_val,
             "price": price_val,
             "available": is_available,
-            "vendorCode": vendor_val,
-        })
-    return offers
-
-###############################################################################
-# 2.2 Функции для формирования групп и подгрупп (со списком товаров)
-###############################################################################
-def build_iphone_subgroups() -> List[Dict[str, Any]]:
-    """
-    Каждая подгруппа: {"id", "name", "patterns", "items"}
-    patterns: список регулярных выражений, по которым мы ищем в названии товара
-    """
-    return [
-        {
-            "id": "iphone_14",
-            "name": "iPhone 14",
-            "patterns": [r"(?i)\biphone\s*14\b"],
-            "items": []
-        },
-        {
-            "id": "iphone_15",
-            "name": "iPhone 15",
-            "patterns": [r"(?i)\biphone\s*15\b"],
-            "items": []
-        },
-        # Добавьте при необходимости iPhone 11, 12, 13 и т.д.
-    ]
-
-def build_apple_watch_subgroups() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "aw_series_9",
-            "name": "Apple Watch Series 9",
-            "patterns": [r"(?i)\bapple\s*watch\s*series\s*9\b"],
-            "items": []
-        },
-        {
-            "id": "aw_ultra_2",
-            "name": "Apple Watch Ultra 2",
-            "patterns": [r"(?i)\bapple\s*watch\s*ultra\s*2\b"],
-            "items": []
-        },
-    ]
-
-def build_ipad_subgroups() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "ipad_10",
-            "name": "iPad 10",
-            "patterns": [r"(?i)\bipad\s*10\b"],
-            "items": []
-        },
-        {
-            "id": "ipad_air_5",
-            "name": "iPad Air 5",
-            "patterns": [r"(?i)\bipad\s*air\s*5\b"],
-            "items": []
-        },
-    ]
-
-def build_macbook_subgroups() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "macbook_air_m1",
-            "name": "MacBook Air (M1)",
-            "patterns": [r"(?i)\bmacbook\s*air\b.*\(m1\)"],
-            "items": []
-        },
-        {
-            "id": "macbook_pro_14",
-            "name": "MacBook Pro 14",
-            "patterns": [r"(?i)\bmacbook\s*pro\s*14\b"],
-            "items": []
-        },
-    ]
-
-def build_jcid_subgroups() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "jcid_platy",
-            "name": "Платы JCID",
-            "patterns": [r"(?i)\bплата\b.*\bjcid\b"],
-            "items": []
-        },
-        {
-            "id": "jcid_shleyfa",
-            "name": "Шлейфа JCID",
-            "patterns": [r"(?i)\bшлейф\b.*\bjcid\b"],
-            "items": []
-        },
-    ]
-
-def build_instrumenty_subgroups() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "otvertki",
-            "name": "Отвертки",
-            "patterns": [r"(?i)\bотвертк(а|и)\b"],
-            "items": []
-        },
-        {
-            "id": "pincety",
-            "name": "Пинцеты",
-            "patterns": [r"(?i)\bпинцет(ы)?\b"],
-            "items": []
-        },
-    ]
-
-def build_all_families() -> List[Dict[str, Any]]:
-    """
-    Основные группы:
-      iPhone
-      Apple Watch
-      iPad
-      MacBook
-      Дополнения JCID
-      Инструменты
-    """
-    return [
-        {
-            "id": "iphone",
-            "name": "iPhone",
-            "subgroups": build_iphone_subgroups()
-        },
-        {
-            "id": "apple_watch",
-            "name": "Apple Watch",
-            "subgroups": build_apple_watch_subgroups()
-        },
-        {
-            "id": "ipad",
-            "name": "iPad",
-            "subgroups": build_ipad_subgroups()
-        },
-        {
-            "id": "macbook",
-            "name": "MacBook",
-            "subgroups": build_macbook_subgroups()
-        },
-        {
-            "id": "jcid",
-            "name": "Дополнения JCID",
-            "subgroups": build_jcid_subgroups()
-        },
-        {
-            "id": "instrumenty",
-            "name": "Инструменты",
-            "subgroups": build_instrumenty_subgroups()
+            "vendorCode": vendor_val
         }
-    ]
+
+        # Добавляем товар в соответствующую категорию (если она есть)
+        if c_id in cat_by_id:
+            cat_by_id[c_id]["items"].append(item)
 
 ###############################################################################
-# 2.3 Вспомогательные функции для работы с данными
+# 4. Вспомогательные функции
 ###############################################################################
-def shorten_name(name: str, max_length: int = 60) -> str:
-    """
-    Удаляем лишние пробелы, сокращаем слишком длинные строки.
-    При желании можно чистить "(идеал)", "в сборе..." и т.п.
-    """
-    txt = re.sub(r'\s+', ' ', name).strip()
-    if len(txt) > max_length:
-        return txt[:max_length - 3].strip() + "..."
-    return txt
-
 def ensure_user_data(user_id: int) -> Dict[str, Any]:
     """
-    Инициализирует запись в user_data, если её нет,
-    и возвращает словарь с полями phone, selected_item.
+    Инициализирует запись для пользователя, если её нет, и возвращает словарь состояния.
     """
     if user_id not in user_data:
-        user_data[user_id] = {"phone": None, "selected_item": None}
+        user_data[user_id] = {
+            "phone": None,
+            "selected_item": None
+        }
     return user_data[user_id]
 
-def find_item_in_families(item_id: str) -> Optional[Dict[str, Any]]:
+def find_item_by_id(item_id: str) -> Optional[Dict[str, Any]]:
     """
-    Поиск товара во всех группах/подгруппах по его ID.
-    Возвращает словарь-offer или None, если не найден.
+    Ищет товар по всем категориям и подкатегориям по полю 'id'.
     """
-    for fam in families:
-        for sg in fam["subgroups"]:
-            for off in sg["items"]:
-                if off["id"] == item_id:
-                    return off
+    for cat_id, cat in cat_by_id.items():
+        for it in cat["items"]:
+            if it["id"] == item_id:
+                return it
     return None
 
+def find_category_by_id(cat_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Быстрый доступ к категории из словаря cat_by_id.
+    """
+    return cat_by_id.get(cat_id)
+
+def shorten_text(text: str, max_len: int = 60) -> str:
+    """
+    Сокращает строку, если она длиннее max_len, добавляя '...'.
+    """
+    txt = text.strip()
+    return txt if len(txt) <= max_len else (txt[:max_len - 3].strip() + "...")
+
 ###############################################################################
-# 3. Инициализация aiogram
+# 5. Инициализация бота (aiogram)
 ###############################################################################
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
 ###############################################################################
-# 3.1 Команда /start
+# 5.1 Команда /start
 ###############################################################################
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     """
-    Приветственное сообщение + формирование каталога:
-    1. Загружаем товары из YML (или сайта).
-    2. Распределяем их по подгруппам.
-    3. Показываем кнопки основных групп.
+    1) Парсим (обновляем) YML-фид,
+    2) Показываем корневые категории пользователю.
     """
-    global families
+    parse_yml_feed(YML_URL)
 
-    # 1) Получаем все товары
-    all_offers = fetch_offers_from_yml(YML_URL)
+    if not categories_tree:
+        await message.answer("Категории недоступны или фид пуст.")
+        return
 
-    # 2) Строим семейства (очищаем/инициализируем)
-    families = build_all_families()
-    for fam in families:
-        for sg in fam["subgroups"]:
-            sg["items"].clear()
-
-    # 3) Распределяем товары по подгруппам на основе patterns
-    for off in all_offers:
-        for fam in families:
-            for sg in fam["subgroups"]:
-                if any(re.search(p, off["name"]) for p in sg["patterns"]):
-                    sg["items"].append(off)
-
-    # 4) Формируем инлайн-клавиатуру основных групп
     kb = InlineKeyboardMarkup()
-    for fam in families:
+    for cat in categories_tree:
         kb.add(InlineKeyboardButton(
-            text=fam["name"],
-            callback_data=f"fam_{fam['id']}"
+            text=cat["name"],
+            callback_data=f"cat_{cat['id']}"
         ))
 
     await message.answer(
-        text="Здравствуйте! Я бот-каталог. Выберите нужную группу:",
+        "Здравствуйте! Я бот-магазин. Выберите раздел:",
         reply_markup=kb
     )
 
 ###############################################################################
-# 3.2 Обработка нажатия на группу: fam_xxx
+# 5.2 Обработка выбора категории: cat_xxx
 ###############################################################################
-@dp.callback_query(F.data.startswith("fam_"))
-async def on_family_callback(callback: CallbackQuery):
-    """
-    Выбор одной из основных групп (iPhone, Apple Watch, и т.д.).
-    Показываем подгруппы (модели/серии).
-    """
-    fam_id = callback.data.split("_", 1)[1]
-    chosen_fam = next((f for f in families if f["id"] == fam_id), None)
-    if not chosen_fam:
-        await callback.answer("Группа не найдена.")
+@dp.callback_query(F.data.startswith("cat_"))
+async def on_category_callback(callback: CallbackQuery):
+    cat_id = callback.data.split("_", 1)[1]
+    category = find_category_by_id(cat_id)
+    if not category:
+        await callback.answer("Категория не найдена.")
         return
 
-    kb = InlineKeyboardMarkup()
-    for sg in chosen_fam["subgroups"]:
-        count_items = len(sg["items"])
-        kb.add(InlineKeyboardButton(
-            text=f"{sg['name']} ({count_items})",
-            callback_data=f"sg_{fam_id}_{sg['id']}"
-        ))
+    # Если есть подкатегории
+    if category["children"]:
+        kb = InlineKeyboardMarkup()
 
-    await callback.message.edit_text(
-        text=f"Вы выбрали: {chosen_fam['name']}\nВыберите подгруппу:",
-        reply_markup=kb
-    )
+        # Кнопки для дочерних категорий
+        for child in category["children"]:
+            kb.add(InlineKeyboardButton(
+                text=child["name"],
+                callback_data=f"cat_{child['id']}"
+            ))
+
+        # Если в самой категории есть товары, предложим кнопку «Показать товары»
+        if category["items"]:
+            kb.add(InlineKeyboardButton(
+                text=f"Показать товары ({len(category['items'])})",
+                callback_data=f"showitems_{cat_id}"
+            ))
+
+        await callback.message.edit_text(
+            text=f"Раздел: {category['name']}",
+            reply_markup=kb
+        )
+        await callback.answer()
+
+    else:
+        # Листовая категория (нет children). Покажем товары напрямую
+        if not category["items"]:
+            await callback.message.edit_text(f"В категории «{category['name']}» нет товаров.")
+            await callback.answer()
+            return
+
+        # Удаляем предыдущий список и показываем товары
+        await callback.message.delete()
+        await send_items_list(callback.message.chat.id, category["items"], category["name"])
+        await callback.answer()
+
+###############################################################################
+# 5.3 Обработка «Показать товары»: showitems_xxx
+###############################################################################
+@dp.callback_query(F.data.startswith("showitems_"))
+async def on_showitems_callback(callback: CallbackQuery):
+    cat_id = callback.data.split("_", 1)[1]
+    category = find_category_by_id(cat_id)
+    if not category:
+        await callback.answer("Категория не найдена.")
+        return
+
+    if not category["items"]:
+        await callback.answer("В этой категории нет товаров.", show_alert=True)
+        return
+
+    await callback.message.delete()
+    await send_items_list(callback.message.chat.id, category["items"], category["name"])
     await callback.answer()
 
 ###############################################################################
-# 3.3 Обработка нажатия на подгруппу: sg_xxx
+# 5.4 Функция отправки списка товаров
 ###############################################################################
-@dp.callback_query(F.data.startswith("sg_"))
-async def on_subgroup_callback(callback: CallbackQuery):
+async def send_items_list(chat_id: int, items: List[Dict[str, Any]], cat_name: str):
     """
-    Выбор конкретной модели (подгруппы).
-    Показываем список товаров (off['name'] ...).
+    Отправляет товары по одному сообщению на товар + кнопку «Заказать».
+    В конце — кнопка «Связаться с менеджером».
     """
-    parts = callback.data.split("_", 2)
-    if len(parts) < 3:
-        await callback.answer("Ошибка подгруппы.")
+    for it in items:
+        short_name = shorten_text(it["name"])
+        price_str = f"{it['price']:.2f}"
+        avail_str = "В наличии" if it["available"] else "Нет в наличии"
+        vendor_str = it["vendorCode"] or "—"
+
+        text_msg = (
+            f"<b>{short_name}</b>\n"
+            f"Цена: {price_str}₽\n"
+            f"Наличие: {avail_str}\n"
+            f"Код: {vendor_str}"
+        )
+        kb_item = InlineKeyboardMarkup()
+        kb_item.add(InlineKeyboardButton("Заказать", callback_data=f"order_{it['id']}"))
+
+        await bot.send_message(
+            chat_id,
+            text=text_msg,
+            parse_mode="HTML",
+            reply_markup=kb_item
+        )
+
+    kb_final = InlineKeyboardMarkup()
+    kb_final.add(InlineKeyboardButton("Связаться с менеджером", callback_data="contact_manager"))
+
+    await bot.send_message(
+        chat_id,
+        text=(
+            f"Всего товаров в «{cat_name}»: {len(items)}\n"
+            "Чтобы оформить заказ, нажмите «Заказать» под нужным товаром\n"
+            "или свяжитесь с менеджером:"
+        ),
+        reply_markup=kb_final
+    )
+
+###############################################################################
+# 5.5 «Заказать» товар (order_xxx)
+###############################################################################
+@dp.callback_query(F.data.startswith("order_"))
+async def on_order_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    item_id = callback.data.split("_", 1)[1]
+
+    item = find_item_by_id(item_id)
+    if not item:
+        await callback.answer("Товар не найден.")
         return
 
-    fam_id, sg_id = parts[1], parts[2]
-    chosen_fam = next((f for f in families if f["id"] == fam_id), None)
-    if not chosen_fam:
-        await callback.answer("Группа не найдена.")
-        return
+    state = ensure_user_data(user_id)
+    state["selected_item"] = item
 
-    chosen_sg = next((s for s in chosen_fam["subgroups"] if s["id"] == sg_id), None)
-    if not chosen_sg:
-        await callback.answer("Подгруппа не найдена.")
-        return
-
-    items = chosen_sg["items"]
-    if not items:
-        await callback.message.edit_text(f"В подгруппе '{chosen_sg['name']}' пока нет товаров.")
+    # Если телефон уже есть — оформляем заказ сразу
+    if state["phone"]:
+        await finalize_order(user_id, callback.message)
+        await callback.answer("Ваш заказ оформлен!")
+    else:
+        # Просим контакт
         await callback.answer()
+        contact_btn = KeyboardButton(text="Отправить номер телефона", request_contact=True)
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        kb.add(contact_btn)
+        await callback.message.answer(
+            text="Пожалуйста, отправьте свой номер телефона, чтобы подтвердить заказ:",
+            reply_markup=kb
+        )
+
+###############################################################################
+# 5.6 «Связаться с менеджером» (contact_manager)
+###############################################################################
+@dp.callback_query(F.data == "contact_manager")
+async def on_contact_manager(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    state = ensure_user_data(user_id)
+
+    if state["phone"]:
+        await callback.answer("У нас уже есть ваш номер, ожидайте связи!")
+    else:
+        await callback.answer()
+        contact_btn = KeyboardButton(text="Отправить номер телефона", request_contact=True)
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        kb.add(contact_btn)
+        await callback.message.answer(
+            text="Отправьте номер телефона, чтобы менеджер мог связаться с вами:",
+            reply_markup=kb
+        )
+
+###############################################################################
+# 5.7 Обработка контакта (message.contact)
+###############################################################################
+@dp.message(F.content_type == ContentType.CONTACT)
+async def on_user_contact(message: Message):
+    user_id = message.from_user.id
+    phone_number = message.contact.phone_number
+    state = ensure_user_data(user_id)
+
+    state["phone"] = phone_number
+    if state["selected_item"]:
+        # Завершаем заказ
+        await message.answer("Спасибо! Телефон получен. Завершаем заказ...")
+        await finalize_order(user_id, message)
+    else:
+        # Просто контакт (без заказа)
+        await message.answer(
+            "Спасибо! Ваш номер получен. Менеджер свяжется с вами.",
+            reply_markup=ReplyKeyboardMarkup(remove_keyboard=True)
+        )
+        # Уведомим менеджера
+        await bot.send_message(
+            chat_id=MANAGER_CHAT_ID,
+            text=(
+                f"Пользователь @{message.from_user.username or '—'} "
+                f"({message.from_user.full_name or '—'}) "
+                f"оставил номер: {phone_number}"
+            )
+        )
+
+###############################################################################
+# 5.8 Завершение заказа
+###############################################################################
+async def finalize_order(user_id: int, msg: Message):
+    """
+    Формирует сообщение для менеджера, отправляет и сбрасывает выбранный товар у пользователя.
+    """
+    state = user_data.get(user_id)
+    if not state:
         return
+
+    phone = state.get("phone")
+    item = state.get("selected_item")
+    if not phone or not item:
+        return
+
+    text_msg = (
+        "Новый заказ!\n"
+        f"Телефон: {phone}\n"
+        f"Товар: {item['name']}\n"
+        f"Цена: {item['price']:.2f}₽\n"
+        f"Код: {item['vendorCode'] or '—'}"
+    )
+    await bot.send_message(MANAGER_CHAT_ID, text_msg)
+    state["selected_item"] = None
+
+    await msg.answer(
+        "Заказ отправлен менеджеру! Ожидайте связи.\n"
+        "Чтобы заказать что-то ещё, введите /start.",
+        reply_markup=ReplyKeyboardMarkup(remove_keyboard=True)
+    )
+
+###############################################################################
+# 5.9 Запуск бота
+###############################################################################
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
