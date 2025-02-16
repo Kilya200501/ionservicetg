@@ -41,7 +41,7 @@ def fetch_data_from_opencart(api_token: str) -> str:
     сессию, логин, и т.д. — в зависимости от вашего API.
     """
     # Пример URL (вы должны заменить на реальный, где принимают api_token)
-    url = "https://example.com/index.php?route=api/products"
+    url = "https://ion-master.ru/admin/index.php?route=user/api/edit&user_token=l6soTO3ME1gZ1fIWIVDZBtoBAkI4HkXT&api_id=1"
 
     params = {
         "api_token": api_token,
