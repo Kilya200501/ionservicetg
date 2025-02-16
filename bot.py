@@ -4,9 +4,7 @@ import logging
 import asyncio
 import requests
 import xml.etree.ElementTree as ET
-
 from typing import Dict, Any, List
-
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -20,24 +18,23 @@ from aiogram.types import (
 # 1. Загрузка окружения
 ############################
 load_dotenv()
-
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 YML_URL = os.getenv("YML_URL", "")
 MANAGER_CHAT_ID = int(os.getenv("MANAGER_CHAT_ID", "0"))
-
 logging.basicConfig(level=logging.INFO)
 
 ############################
 # 2. Глобальные данные
 ############################
+
 # user_data[user_id] = {
-#   "phone": str | None,
-#   "selected_item": dict | None
+#    "phone": str | None,
+#    "selected_item": dict | None
 # }
 user_data: Dict[int, Dict[str, Any]] = {}
 
 ############################
-# 2.1 Сокращение названий товара
+# 2.1 Функция сокращения названий товара
 ############################
 def shorten_name(original_name: str, max_length=60) -> str:
     """
@@ -49,15 +46,68 @@ def shorten_name(original_name: str, max_length=60) -> str:
     text = re.sub(r'в сборе с сенсорным стеклом\s*\(тачскрин\)', '', original_name, flags=re.IGNORECASE)
     text = re.sub(r'\(идеал\)', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
-
     if len(text) > max_length:
         text = text[:max_length-3].strip() + "..."
     return text
 
 ############################
+# 2.2 Функция для парсинга YML
+############################
+def fetch_offers_from_yml(url: str) -> List[Dict[str, Any]]:
+    """
+    Пример функции, которая:
+    1. Скачивает XML/YML-файл по ссылке (requests.get).
+    2. Разбирает структуру YML (чаще всего <yml_catalog><shop><offers>).
+    3. Возвращает список офферов в виде словарей: 
+       [{"id": ..., "name": ..., "price": ..., "available": ..., "vendorCode": ...}, ...]
+
+    Если структура вашего файла иная, скорректируйте пути .find / .findall.
+    """
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()  # Если HTTP-ошибка, выбросит исключение
+
+    # Парсим XML/YML
+    root = ET.fromstring(response.text)
+
+    # Ищем <shop> внутри <yml_catalog>
+    shop_element = root.find('shop')
+    if shop_element is None:
+        return []
+
+    # Ищем <offers> внутри <shop>
+    offers_element = shop_element.find('offers')
+    if offers_element is None:
+        return []
+
+    offers = []
+    for offer_el in offers_element.findall('offer'):
+        offer_id = offer_el.get('id', '')
+        available_str = offer_el.get('available', 'false')
+        available = (available_str.lower() == 'true')
+
+        price_el = offer_el.find('price')
+        name_el = offer_el.find('name')
+        vendorcode_el = offer_el.find('vendorCode')
+
+        price = float(price_el.text) if (price_el is not None and price_el.text) else 0.0
+        name = name_el.text if name_el is not None else "No name"
+        vendor_code = vendorcode_el.text if vendorcode_el is not None else ""
+
+        offer_dict = {
+            "id": offer_id,
+            "name": name,
+            "price": price,
+            "available": available,
+            "vendorCode": vendor_code
+        }
+        offers.append(offer_dict)
+
+    return offers
+
+
+############################
 # 3. Определение групп/подгрупп (полные списки)
 ############################
-
 def build_iphone_subgroups() -> List[Dict[str, Any]]:
     """
     iPhone: от iPhone 16 Pro Max к iPhone 6/6 Plus (полный список, без сокращения).
@@ -88,7 +138,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*16\b(?!\s*pro|plus)"],
             "items": []
         },
-
         # 15
         {
             "id": "iphone_15_pro_max",
@@ -114,7 +163,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*15\b(?!\s*pro|plus)"],
             "items": []
         },
-
         # 14
         {
             "id": "iphone_14_pro_max",
@@ -140,7 +188,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*14\b(?!\s*pro|plus)"],
             "items": []
         },
-
         # 13
         {
             "id": "iphone_13_pro_max",
@@ -166,7 +213,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*13\b(?!\s*pro|mini)"],
             "items": []
         },
-
         # 12
         {
             "id": "iphone_12_pro_max",
@@ -192,7 +238,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*12\b(?!\s*pro|mini)"],
             "items": []
         },
-
         # 11
         {
             "id": "iphone_11_pro_max",
@@ -212,7 +257,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*11\b(?!\s*pro)"],
             "items": []
         },
-
         # X / Xs / Xr
         {
             "id": "iphone_xs_max",
@@ -238,7 +282,6 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*x\b(?!s|r)"],
             "items": []
         },
-
         # SE
         {
             "id": "iphone_se_2023",
@@ -258,9 +301,8 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\biphone\s*se\s*2020\b"],
             "items": []
         },
-
-        # 8/8 plus / 7/7 plus / 6/6 plus
         {
+            # 8/8 plus / 7/7 plus / 6/6 plus
             "id": "iphone_8_8_plus",
             "name": "iPhone 8/8 Plus",
             "patterns": [
@@ -294,7 +336,7 @@ def build_iphone_subgroups() -> List[Dict[str, Any]]:
 
 def build_ipad_subgroups() -> List[Dict[str, Any]]:
     """
-    Полный список iPad в порядке, который вы дали: iPad 10, iPad 5, iPad 6 ...
+    Полный списоĸ iPad в порядке, который вы дали: iPad 10, iPad 5, iPad 6 ...
     """
     return [
         {
@@ -327,6 +369,9 @@ def build_ipad_subgroups() -> List[Dict[str, Any]]:
             "patterns": [r"(?i)\bipad\s*8\b"],
             "items": []
         },
+        # ... здесь нужно продолжить заполнение подгрупп, 
+        # но в примере часть пропущена, будьте аккуратны
+
         {
             "id": "ipad_9",
             "name": "IPad 9",
@@ -499,13 +544,7 @@ def build_ipad_subgroups() -> List[Dict[str, Any]]:
 
 def build_apple_watch_subgroups() -> List[Dict[str, Any]]:
     """
-    Полный список Apple Watch, по вашему сообщению:
-    Apple Watch Series 1
-    Apple Watch Series 10
-    Apple Watch Series 2
-    ...
-    Apple Watch Ultra 2
-    (Тот самый порядок).
+    Полный списоĸ Apple Watch, по вашему сообщению...
     """
     return [
         {
@@ -668,7 +707,7 @@ def build_instrumenty_subgroups() -> List[Dict[str, Any]]:
         {
             "id": "lampy",
             "name": "Лампы",
-            "patterns": [r"(?i)\bламп(а|ы)\b"],
+            "patterns": [r"(?i)\бламп(а|ы)\b"],
             "items": []
         },
         {
@@ -734,7 +773,7 @@ def build_instrumenty_subgroups() -> List[Dict[str, Any]]:
         {
             "id": "forma_dlya_fiksacii_ramak",
             "name": "Форма для фиксации рамок",
-            "patterns": [r"(?i)\bформа\b.*\bдля\s*фиксации\s*рамок\b"],
+            "patterns": [r"(?i)\bформа\b.*\bдля\s*фиксации\s*рамак\b"],
             "items": []
         },
         {
@@ -789,17 +828,19 @@ dp = Dispatcher()
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     global families
+
     # 1. Парсим YML
-    offers = fetch_offers_from_yml(YML_URL)
+    offers = fetch_offers_from_yml(YML_URL)  # <-- Вызов функции парсинга
+
     # 2. Очищаем старые items
     families = build_all_families()  # перестраиваем структуру
     for fam in families:
         for sg in fam["subgroups"]:
             sg["items"].clear()
+
     # 3. Распределяем товары по subgroups
     for fam in families:
         for off in offers:
-            # для каждой subgroups
             for sg in fam["subgroups"]:
                 matched = any(re.search(p, off["name"]) for p in sg["patterns"])
                 if matched:
@@ -814,7 +855,6 @@ async def cmd_start(message: Message):
                 callback_data=f"fam_{fam['id']}"
             )
         ])
-
     await message.answer(
         "Здравствуйте! Я ваш Telegram-помощник по запчастям Apple.\nВыберите нужную группу:",
         reply_markup=kb
@@ -826,7 +866,6 @@ async def cmd_start(message: Message):
 @dp.callback_query(F.data.startswith("fam_"))
 async def on_family_callback(callback: CallbackQuery):
     fam_id = callback.data.split("_", 1)[1]
-
     chosen_fam = next((f for f in families if f["id"] == fam_id), None)
     if not chosen_fam:
         await callback.answer("Группа не найдена.")
@@ -857,7 +896,6 @@ async def on_subgroup_callback(callback: CallbackQuery):
         return
 
     fam_id, sg_id = parts[1], parts[2]
-
     chosen_fam = next((f for f in families if f["id"] == fam_id), None)
     if not chosen_fam:
         await callback.answer("Группа не найдена.")
@@ -890,18 +928,16 @@ async def on_subgroup_callback(callback: CallbackQuery):
             f"Наличие: {available_str}\n"
             f"Код: {code_str}"
         )
-
         kb_item = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton("Заказать", callback_data=f"order_{off['id']}")
         ]])
-
         await callback.message.answer(
             text_msg,
             parse_mode="HTML",
             reply_markup=kb_item
         )
 
-    # И в конце - кнопка «Связаться с менеджером»
+    # В конце - кнопка «Связаться с менеджером»
     kb_final = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton("Связаться с менеджером", callback_data="contact_manager")
     ]])
@@ -953,7 +989,6 @@ async def on_order_callback(callback: CallbackQuery):
         contact_btn = KeyboardButton(text="Отправить номер телефона", request_contact=True)
         kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         kb.add(contact_btn)
-
         await callback.message.answer(
             "Пожалуйста, отправьте свой номер телефона, чтобы подтвердить заказ:",
             reply_markup=kb
@@ -965,7 +1000,6 @@ async def on_order_callback(callback: CallbackQuery):
 async def send_order_to_manager(user_id: int):
     if user_id not in user_data:
         return
-
     phone = user_data[user_id].get("phone")
     item = user_data[user_id].get("selected_item")
     if not phone or not item:
@@ -998,7 +1032,6 @@ async def on_contact_manager(callback: CallbackQuery):
         contact_btn = KeyboardButton(text="Отправить номер телефона", request_contact=True)
         kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         kb.add(contact_btn)
-
         await callback.message.answer(
             "Отправьте номер телефона, чтобы менеджер связался с вами:",
             reply_markup=kb
@@ -1016,8 +1049,8 @@ async def on_user_contact(message: Message):
         user_data[user_id] = {"phone": None, "selected_item": None}
 
     user_data[user_id]["phone"] = phone_number
-
     selected_item = user_data[user_id]["selected_item"]
+
     if selected_item:
         # Завершить заказ
         await message.answer("Спасибо! Телефон получен. Завершаем заказ...")
@@ -1035,16 +1068,14 @@ async def on_user_contact(message: Message):
         # Уведомим менеджера
         await bot.send_message(
             chat_id=MANAGER_CHAT_ID,
-            text=f"Пользователь @{message.from_user.username or '—'} ({message.from_user.full_name or '—'}) "
-                 f"оставил номер: {phone_number}"
+            text=f"Пользователь @{message.from_user.username or '—'} "
+                 f"({message.from_user.full_name or '—'}) оставил номер: {phone_number}"
         )
-
 
 ############################
 # 6. Запуск бота (aiogram 3.x)
 ############################
 async def main():
-    # Регистрируем все хендлеры (мы уже повесили декораторы)
     # Запускаем polling
     await dp.start_polling(bot)
 
